@@ -36,3 +36,18 @@ Build a metadata-driven web screen builder:
 - Keep commit messages concise and imperative.
 - Summarize changed files and validation steps in PR description.
 - If changes are docs-only, clearly state that no runtime tests were executed.
+
+
+## Development rules (MVP first)
+- Start with MVP only.
+- Keep frontend and backend as separate applications/modules.
+- Use JSON metadata for dynamic screen rendering.
+- Do not over-engineer advanced features yet.
+
+## Standard test commands
+- Frontend
+  - `npm install`
+  - `npm run build`
+- Backend
+  - `./mvnw test`
+  - `./mvnw spring-boot:run`

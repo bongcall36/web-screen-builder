@@ -250,3 +250,25 @@ If you want, the next commit can scaffold:
 - `frontend/runtime` (dynamic renderer skeleton)
 - `backend` (Spring Boot auth/menu/screen API skeleton + Flyway)
 
+
+
+## 12) Development Rules (Required)
+
+- Start with MVP.
+- Keep frontend and backend separated.
+- Use JSON metadata to render screens dynamically.
+- Do not over-engineer advanced features yet.
+
+## 13) Standard Test Commands
+
+### Frontend
+```bash
+npm install
+npm run build
+```
+
+### Backend
+```bash
+./mvnw test
+./mvnw spring-boot:run
+```

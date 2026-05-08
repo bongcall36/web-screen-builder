@@ -272,3 +272,41 @@ npm run build
 ./mvnw test
 ./mvnw spring-boot:run
 ```
+
+## 14) Initial MVP Scaffold (Implemented)
+
+This repository now includes a simple runnable MVP scaffold:
+
+- `frontend/designer`: React + TypeScript + Ant Design app for saving screen metadata.
+- `frontend/runtime`: React + TypeScript + Ant Design app with dynamic renderer supporting `Input`, `Button`, and `AgGrid` from JSON.
+- `backend`: Spring Boot 3 (Java 17) mock API server.
+
+Implemented APIs (mock/in-memory):
+- `POST /api/auth/login`
+- `GET /api/menus`
+- `POST /api/screens`
+- `GET /api/screens/{screenId}`
+
+Sample metadata is preloaded under `screenId = sample-screen` in backend in-memory storage.
+
+## 15) Run Instructions (MVP)
+
+### Backend
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+### Frontend Designer
+```bash
+cd frontend/designer
+npm install
+npm run dev
+```
+
+### Frontend Runtime
+```bash
+cd frontend/runtime
+npm install
+npm run dev
+```

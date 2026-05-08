@@ -50,26 +50,3 @@ npm run build
 cd backend
 mvn test
 ```
-
-
-## Yarn Install (가능)
-
-네, yarn으로 설치/실행할 수 있습니다.
-
-### Runtime Frontend
-```bash
-cd frontend/runtime
-yarn install
-yarn dev
-# build
-yarn build
-```
-
-### Designer Frontend
-```bash
-cd frontend/designer
-yarn install
-yarn dev
-# build
-yarn build
-```

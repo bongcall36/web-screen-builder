@@ -14,7 +14,7 @@ function App() {
     message.success('Saved metadata');
   };
   return <Layout><Header><Typography.Title style={{color:'white'}} level={4}>Designer MVP</Typography.Title></Header><Content style={{padding:24}}>
-    <Form form={form} layout='vertical' initialValues={{screenId:'sample-screen', name:'Sample Screen', json:'{"components":[]}'}}>
+    <Form form={form} layout='vertical' initialValues={{screenId:'sample-screen', name:'Sample Screen', json:'{"components":[{"id":"input1","type":"Input","props":{"placeholder":"Type keyword"}},{"id":"button1","type":"Button","props":{"text":"Search"}},{"id":"grid1","type":"AgGrid","props":{"columnDefs":[{"field":"id"},{"field":"name"}],"rowData":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}}]}'}}>
       <Form.Item name='screenId' label='Screen ID'><Input/></Form.Item>
       <Form.Item name='name' label='Screen Name'><Input/></Form.Item>
       <Form.Item name='json' label='Screen JSON'><Input.TextArea rows={10}/></Form.Item>

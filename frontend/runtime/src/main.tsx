@@ -1,11 +1,48 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { AgGridReact } from 'ag-grid-react';
-import { Button, Form, Input, Layout, List, Typography } from 'antd';
+import { Button, Form, Input, Layout, Modal, Space, Tree, Typography, message } from 'antd';
 import axios from 'axios';
 import 'antd/dist/reset.css';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
+
+const { Header, Content, Sider } = Layout;
+
+type MenuItem = {
+  id: string;
+  name: string;
+  screenId?: string;
+  parentId?: string;
+  targetType?: 'folder' | 'screen';
+  openMode?: 'inline' | 'popup';
+};
+
+type ScreenState = {
+  menu: MenuItem;
+  components: ScreenComponent[];
+  communications: CommunicationDefinition[];
+  inputValues: Record<string, string>;
+  gridRows: Record<string, Array<Record<string, unknown>>>;
+};
+
+type CommunicationDefinition = {
+  id: string;
+  name: string;
+  formatId?: string;
+  triggerComponentId: string;
+  inputBindings: Array<{ field: string; componentId: string }>;
+  outputBindings: Array<{ field: string; componentId: string }>;
+  sampleRows?: Array<Record<string, unknown>>;
+};
+
+type CommunicationFormat = {
+  id: string;
+  name: string;
+  inputFields?: string[];
+  outputFields?: string[];
+  sampleRows: Array<Record<string, unknown>>;
+};
 
 type ScreenComponent = {
   id: string;
@@ -20,7 +57,7 @@ function defaultSize(type: ScreenComponent['type']): { w: number; h: number } {
     case 'Input':
       return { w: 256, h: 40 };
     case 'Button':
-      return { w: 120, h: 40 };
+      return { w: 160, h: 40 };
     case 'AgGrid':
       return { w: 400, h: 200 };
     default:
@@ -45,18 +82,67 @@ function getStackPosition(index: number) {
 function getGridColumnDefs(props: any) {
   const columnDefs = Array.isArray(props?.columnDefs) ? props.columnDefs : [];
   return columnDefs.map((columnDef: any) => ({
+    flex: columnDef.flex ?? 1,
+    minWidth: columnDef.minWidth ?? 80,
     ...columnDef,
     cellDataType: false,
   }));
 }
 
-function DynamicRenderer({ components }: { components: ScreenComponent[] }) {
+function menuTargetType(menu: MenuItem): 'folder' | 'screen' {
+  return menu.targetType === 'folder' ? 'folder' : 'screen';
+}
+
+function menuParentId(menu: MenuItem, menuIds: Set<string>) {
+  return menu.parentId && menuIds.has(menu.parentId) ? menu.parentId : '';
+}
+
+function buildMenuTree(menus: MenuItem[]) {
+  const ids = new Set(menus.map((menu) => menu.id));
+  const childrenByParent = new Map<string, MenuItem[]>();
+
+  menus.forEach((menu) => {
+    const parentId = menuParentId(menu, ids);
+    const children = childrenByParent.get(parentId) ?? [];
+    children.push(menu);
+    childrenByParent.set(parentId, children);
+  });
+
+  const makeNodes = (parentId: string): any[] =>
+    (childrenByParent.get(parentId) ?? [])
+      .sort((a, b) => {
+        const typeDiff = Number(menuTargetType(a) !== 'folder') - Number(menuTargetType(b) !== 'folder');
+        return typeDiff || (a.name || a.id).localeCompare(b.name || b.id);
+      })
+      .map((menu) => ({
+        key: menu.id,
+        title: `${menu.name || menu.id} (${menu.id})`,
+        selectable: menuTargetType(menu) === 'screen',
+        children: makeNodes(menu.id),
+      }));
+
+  return makeNodes('');
+}
+
+function DynamicRenderer({
+  components,
+  inputValues,
+  gridRows,
+  onInputChange,
+  onAction,
+}: {
+  components: ScreenComponent[];
+  inputValues: Record<string, string>;
+  gridRows: Record<string, Array<Record<string, unknown>>>;
+  onInputChange: (componentId: string, value: string) => void;
+  onAction: (componentId: string) => void;
+}) {
   const placed = components.map((c, index) => {
     const hasLayout =
       c.layout && typeof c.layout.x === 'number' && typeof c.layout.y === 'number';
     const pos = hasLayout ? { x: c.layout!.x, y: c.layout!.y } : getStackPosition(index);
     const L = effectiveLayout(c);
-    const z = c.zIndex ?? (index + 1);
+    const z = c.zIndex ?? index + 1;
     const bottom = pos.y + L.h;
     return { c, pos, z, bottom, L };
   });
@@ -75,35 +161,52 @@ function DynamicRenderer({ components }: { components: ScreenComponent[] }) {
           height: L.h,
           boxSizing: 'border-box' as const,
         };
+
         if (c.type === 'Input') {
           return (
             <div key={c.id} style={common}>
               <Input
                 placeholder={c.props?.placeholder}
+                value={inputValues[c.id] ?? ''}
+                onChange={(e) => onInputChange(c.id, e.target.value)}
                 style={{ width: '100%', height: '100%', boxSizing: 'border-box' }}
               />
             </div>
           );
         }
+
         if (c.type === 'Button') {
           return (
             <div key={c.id} style={common}>
-              <Button type="primary" style={{ width: '100%', height: '100%' }}>
+              <Button
+                type="primary"
+                onClick={() => onAction(c.id)}
+                style={{ width: '100%', height: '100%' }}
+              >
                 {c.props?.text ?? 'Button'}
               </Button>
             </div>
           );
         }
+
         if (c.type === 'AgGrid') {
           return (
-            <div key={c.id} style={{ ...common }} className="ag-theme-quartz">
+            <div key={c.id} style={common} className="ag-theme-quartz">
               <AgGridReact
-                rowData={c.props?.rowData ?? []}
+                rowData={gridRows[c.id] ?? c.props?.rowData ?? []}
                 columnDefs={getGridColumnDefs(c.props)}
+                defaultColDef={{
+                  flex: 1,
+                  minWidth: 80,
+                  resizable: true,
+                }}
+                onGridReady={(event) => event.api.sizeColumnsToFit()}
+                onGridSizeChanged={(event) => event.api.sizeColumnsToFit()}
               />
             </div>
           );
         }
+
         return null;
       })}
     </div>
@@ -112,57 +215,282 @@ function DynamicRenderer({ components }: { components: ScreenComponent[] }) {
 
 function App() {
   const [token, setToken] = useState<string>('');
-  const [menus, setMenus] = useState<Array<{ id: string; name: string; screenId: string }>>([]);
+  const [menus, setMenus] = useState<MenuItem[]>([]);
   const [components, setComponents] = useState<ScreenComponent[]>([]);
+  const [communications, setCommunications] = useState<CommunicationDefinition[]>([]);
+  const [communicationFormats, setCommunicationFormats] = useState<CommunicationFormat[]>([]);
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [gridRows, setGridRows] = useState<Record<string, Array<Record<string, unknown>>>>({});
+  const [activeMenu, setActiveMenu] = useState<MenuItem | null>(null);
+  const [popupScreen, setPopupScreen] = useState<ScreenState | null>(null);
 
-  const onLogin = async (values: { username: string; password: string }) => {
-    const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
-    setToken(loginRes.data.token);
+  const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
 
+  const loadMenus = async () => {
     const menuRes = await axios.get('http://localhost:8080/api/menus');
     setMenus(menuRes.data);
   };
 
-  const onClickMenu = async (screenId: string) => {
-    const screenRes = await axios.get(`http://localhost:8080/api/screens/${screenId}`);
-    setComponents(screenRes.data.components ?? []);
+  const loadCommunicationFormats = async () => {
+    const formatRes = await axios.get('http://localhost:8080/api/communications/formats');
+    setCommunicationFormats(formatRes.data);
+  };
+
+  const onLogin = async (values: { username: string; password: string }) => {
+    const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
+    setToken(loginRes.data.token);
+    await Promise.all([loadMenus(), loadCommunicationFormats()]);
+  };
+
+  const loadScreenForMenu = async (item: MenuItem) => {
+    if (!item.screenId) {
+      throw new Error('screenId is required');
+    }
+    const screenRes = await axios.get(`http://localhost:8080/api/screens/${item.screenId}`);
+    return {
+      components: screenRes.data.components ?? [],
+      communications: screenRes.data.communications ?? [],
+    };
+  };
+
+  const openMenu = async (item: MenuItem) => {
+    if (menuTargetType(item) === 'folder') {
+      return;
+    }
+
+    setActiveMenu(item);
+    setComponents([]);
+    setCommunications([]);
+    setInputValues({});
+    setGridRows({});
+    try {
+      const screen = await loadScreenForMenu(item);
+
+      if (item.openMode === 'popup') {
+        setActiveMenu(null);
+        setPopupScreen({
+          menu: item,
+          components: screen.components,
+          communications: screen.communications,
+          inputValues: {},
+          gridRows: {},
+        });
+        return;
+      }
+
+      setComponents(screen.components);
+      setCommunications(screen.communications);
+    } catch {
+      message.error(`Could not open ${item.name}`);
+    }
+  };
+
+  const executeAction = async (
+    triggerComponentId: string,
+    actionCommunications = communications,
+    actionInputValues = inputValues,
+    updateGridRows: React.Dispatch<
+      React.SetStateAction<Record<string, Array<Record<string, unknown>>>>
+    > = setGridRows,
+  ) => {
+    const action = actionCommunications.find((comm) => comm.triggerComponentId === triggerComponentId);
+    if (!action) {
+      message.warning('No communication action is connected to this button.');
+      return;
+    }
+
+    const format = communicationFormats.find(
+      (item) => item.id === (action.formatId || action.id),
+    );
+
+    const input = Object.fromEntries(
+      action.inputBindings.map((binding) => [
+        binding.field,
+        actionInputValues[binding.componentId] ?? '',
+      ]),
+    );
+
+    try {
+      const res = await axios.post(
+        `http://localhost:8080/api/communications/${action.formatId || action.id}/execute`,
+        {
+          input,
+          sampleRows: format?.sampleRows ?? action.sampleRows ?? [],
+        },
+      );
+      updateGridRows((prev) => {
+        const next = { ...prev };
+        action.outputBindings.forEach((binding) => {
+          const outputRows = Array.isArray(res.data[binding.field])
+            ? res.data[binding.field]
+            : Array.isArray(res.data.rows)
+              ? res.data.rows
+              : [];
+          next[binding.componentId] = outputRows;
+        });
+        return next;
+      });
+      message.success(`${action.name || action.id} completed`);
+    } catch {
+      message.error(`${action.name || action.id} failed`);
+    }
   };
 
   return (
-    <Layout style={{ padding: 24 }}>
-      <Typography.Title level={3}>MVP Runtime</Typography.Title>
-      <Typography.Paragraph>
-        Login → Menu → Screen Metadata Load → Dynamic Renderer
-      </Typography.Paragraph>
-
+    <Layout style={{ minHeight: '100vh' }}>
       {!token && (
-        <Form layout="inline" onFinish={onLogin}>
-          <Form.Item name="username" rules={[{ required: true }]}>
-            <Input placeholder="username" />
-          </Form.Item>
-          <Form.Item name="password" rules={[{ required: true }]}>
-            <Input.Password placeholder="password" />
-          </Form.Item>
-          <Button htmlType="submit" type="primary">Login</Button>
-        </Form>
+        <Content
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div style={{ width: 420 }}>
+            <Typography.Title level={3}>MVP Runtime</Typography.Title>
+            <Form layout="vertical" onFinish={onLogin}>
+              <Form.Item name="username" rules={[{ required: true }]}>
+                <Input placeholder="username" />
+              </Form.Item>
+              <Form.Item name="password" rules={[{ required: true }]}>
+                <Input.Password placeholder="password" />
+              </Form.Item>
+              <Button htmlType="submit" type="primary" block>
+                Login
+              </Button>
+            </Form>
+          </div>
+        </Content>
       )}
 
       {!!token && (
-        <>
-          <List
-            header="Menu"
-            bordered
-            dataSource={menus}
-            renderItem={(item) => (
-              <List.Item onClick={() => onClickMenu(item.screenId)} style={{ cursor: 'pointer' }}>
-                {item.name}
-              </List.Item>
+        <Layout style={{ minHeight: '100vh' }}>
+          <Sider
+            width={260}
+            theme="light"
+            style={{
+              borderRight: '1px solid #f0f0f0',
+              padding: 16,
+              overflow: 'auto',
+            }}
+          >
+            <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Typography.Title level={5} style={{ margin: 0 }}>
+                Menu
+              </Typography.Title>
+              <Button size="small" onClick={loadMenus}>
+                Refresh
+              </Button>
+            </Space>
+            <div style={{ border: '1px solid #f0f0f0', padding: 8, background: '#fff' }}>
+              <Tree
+                treeData={menuTreeData}
+                blockNode
+                showLine
+                expandedKeys={menus.map((menu) => menu.id)}
+                selectedKeys={activeMenu ? [activeMenu.id] : []}
+                onSelect={(keys) => {
+                  const item = menus.find((menu) => menu.id === String(keys[0] ?? ''));
+                  if (item) {
+                    openMenu(item);
+                  }
+                }}
+              />
+              {menus.length === 0 && (
+                <Typography.Text type="secondary">No menus</Typography.Text>
+              )}
+            </div>
+          </Sider>
+
+          <Layout>
+            <Header
+              style={{
+                background: '#fff',
+                borderBottom: '1px solid #f0f0f0',
+                paddingInline: 24,
+              }}
+            >
+              <Typography.Title level={4} style={{ margin: 0, lineHeight: '64px' }}>
+                {activeMenu?.name ?? 'Select a menu'}
+              </Typography.Title>
+            </Header>
+            <Content style={{ background: '#fafafa', padding: 24, overflow: 'auto' }}>
+              <div
+                style={{
+                  minHeight: 'calc(100vh - 112px)',
+                  background: '#fff',
+                  border: '1px solid #f0f0f0',
+                  borderRadius: 8,
+                  padding: 24,
+                }}
+              >
+                {activeMenu ? (
+                  <DynamicRenderer
+                    components={components}
+                    inputValues={inputValues}
+                    gridRows={gridRows}
+                    onInputChange={(componentId, value) =>
+                      setInputValues((prev) => ({ ...prev, [componentId]: value }))
+                    }
+                    onAction={executeAction}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">Choose a menu from the left.</Typography.Text>
+                )}
+              </div>
+            </Content>
+          </Layout>
+
+          <Modal
+            open={!!popupScreen}
+            title={popupScreen?.menu.name}
+            width={980}
+            footer={null}
+            destroyOnClose
+            onCancel={() => setPopupScreen(null)}
+          >
+            {popupScreen && (
+              <div style={{ minHeight: 480 }}>
+                <DynamicRenderer
+                  components={popupScreen.components}
+                  inputValues={popupScreen.inputValues}
+                  gridRows={popupScreen.gridRows}
+                  onInputChange={(componentId, value) =>
+                    setPopupScreen((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            inputValues: { ...prev.inputValues, [componentId]: value },
+                          }
+                        : prev,
+                    )
+                  }
+                  onAction={(triggerComponentId) =>
+                    executeAction(
+                      triggerComponentId,
+                      popupScreen.communications,
+                      popupScreen.inputValues,
+                      (updater) =>
+                        setPopupScreen((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                gridRows:
+                                  typeof updater === 'function'
+                                    ? updater(prev.gridRows)
+                                    : updater,
+                              }
+                            : prev,
+                        ),
+                    )
+                  }
+                />
+              </div>
             )}
-          />
-          <div style={{ marginTop: 16 }}>
-            <DynamicRenderer components={components} />
-          </div>
-        </>
+          </Modal>
+        </Layout>
       )}
     </Layout>
   );

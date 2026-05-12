@@ -80,7 +80,7 @@ function defaultPropsFor(type) {
         case 'AgGrid':
             return {
                 columnDefs: [{ field: 'id' }, { field: 'name' }],
-                rowData: [],
+                rowData: [{ id: '', name: '' }],
             };
         default:
             return {};
@@ -92,7 +92,35 @@ function newId() {
 function clamp(n, min, max) {
     return Math.min(max, Math.max(min, n));
 }
-function CanvasPreview({ item }) {
+function getGridColumns(item) {
+    const raw = item.props?.columnDefs;
+    if (!Array.isArray(raw))
+        return [];
+    return raw.filter((col) => typeof col === 'object' && col !== null);
+}
+function getGridRows(item) {
+    const raw = item.props?.rowData;
+    if (!Array.isArray(raw))
+        return [];
+    return raw.filter((row) => typeof row === 'object' && row !== null);
+}
+function getVisibleGridColumns(item) {
+    return getGridColumns(item).filter((col) => typeof col.field === 'string' && col.field);
+}
+function nextGridField(columns) {
+    const fields = new Set(columns.map((col) => col.field).filter(Boolean));
+    let index = fields.size + 1;
+    let field = `column${index}`;
+    while (fields.has(field)) {
+        index += 1;
+        field = `column${index}`;
+    }
+    return field;
+}
+function columnDraftKey(componentId, field) {
+    return `${componentId}:${field}`;
+}
+function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridAddColumn, onGridRemoveColumn, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
     if (item.type === 'Input') {
         return (_jsx(Input, { readOnly: true, placeholder: item.props?.placeholder ?? 'Input', style: { width: '100%', height: '100%', boxSizing: 'border-box' } }));
     }
@@ -100,17 +128,26 @@ function CanvasPreview({ item }) {
         return (_jsx(Button, { type: "primary", style: { width: '100%', height: '100%' }, children: item.props?.text ?? 'Button' }));
     }
     if (item.type === 'AgGrid') {
-        const cols = item.props?.columnDefs ?? [];
-        return (_jsxs("div", { style: {
-                border: '1px dashed #91caff',
-                borderRadius: 8,
-                padding: 12,
-                background: '#e6f4ff',
+        const cols = getVisibleGridColumns(item);
+        const rows = getGridRows(item);
+        return (_jsxs("div", { "data-grid-editor": true, style: {
                 width: '100%',
                 height: '100%',
                 boxSizing: 'border-box',
                 overflow: 'auto',
-            }, children: [_jsx(Typography.Text, { strong: true, children: "AgGrid" }), _jsxs(Typography.Paragraph, { type: "secondary", style: { marginBottom: 0, marginTop: 4 }, children: ["Columns: ", cols.map((col) => col.field ?? '?').join(', ') || '(none)'] })] }));
+                border: '1px solid #d9d9d9',
+                borderRadius: 6,
+                background: '#fff',
+            }, children: [_jsxs(Space, { size: 4, wrap: true, style: { padding: 4, borderBottom: '1px solid #f0f0f0' }, children: [_jsx(Button, { size: "small", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridAddColumn(item.id), children: "Add column" }), _jsx(Button, { size: "small", type: "link", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridAddRow(item.id), style: { paddingInline: 4 }, children: "Add row" })] }), _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }, children: [_jsx("thead", { children: _jsxs("tr", { children: [cols.map((col) => (_jsx("th", { style: {
+                                            borderBottom: '1px solid #f0f0f0',
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                            padding: 4,
+                                            textAlign: 'left',
+                                        }, children: _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { size: "small", value: columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field, onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridColumnDraftChange(item.id, col.field ?? '', e.target.value), onBlur: () => onGridColumnChange(item.id, col.field ?? ''), onPressEnter: (e) => e.currentTarget.blur() }), _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove column", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveColumn(item.id, col.field ?? '') })] }) }, col.field))), _jsx("th", { style: { borderBottom: '1px solid #f0f0f0', width: 42 } })] }) }), _jsx("tbody", { children: rows.map((row, rowIndex) => (_jsxs("tr", { children: [cols.map((col) => {
+                                        const field = col.field ?? '';
+                                        return (_jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Input, { size: "small", value: String(row[field] ?? ''), onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridCellChange(item.id, rowIndex, field, e.target.value) }) }, field));
+                                    }), _jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove row", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveRow(item.id, rowIndex) }) })] }, rowIndex))) })] })] }));
     }
     return null;
 }
@@ -124,6 +161,7 @@ function App() {
     const [components, setComponents] = useState(DEFAULT_COMPONENTS);
     const [jsonTab, setJsonTab] = useState('visual');
     const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify({ components: DEFAULT_COMPONENTS }, null, 2));
+    const [columnNameDrafts, setColumnNameDrafts] = useState({});
     const canvasInnerRef = useRef(null);
     const dragInfoRef = useRef(null);
     const resizeInfoRef = useRef(null);
@@ -178,8 +216,142 @@ function App() {
     const removeById = (id) => {
         setComponents((prev) => prev.filter((c) => c.id !== id));
     };
+    const updateGridColumnDraft = (componentId, field, value) => {
+        setColumnNameDrafts((prev) => ({
+            ...prev,
+            [columnDraftKey(componentId, field)]: value,
+        }));
+    };
+    const updateGridColumn = (componentId, oldField) => {
+        const draftKey = columnDraftKey(componentId, oldField);
+        const newField = (columnNameDrafts[draftKey] ?? oldField).trim();
+        if (!newField) {
+            message.error('Column name is required.');
+            setColumnNameDrafts((prev) => ({ ...prev, [draftKey]: oldField }));
+            return;
+        }
+        let didCommit = false;
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            const columns = getGridColumns(c);
+            if (oldField !== newField && columns.some((col) => col.field === newField)) {
+                message.error('Column name already exists.');
+                setColumnNameDrafts((drafts) => ({ ...drafts, [draftKey]: oldField }));
+                return c;
+            }
+            didCommit = true;
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    columnDefs: columns.map((col) => col.field === oldField
+                        ? {
+                            ...col,
+                            field: newField,
+                        }
+                        : col),
+                    rowData: getGridRows(c).map((row) => {
+                        if (oldField === newField)
+                            return row;
+                        const nextRow = { ...row, [newField]: row[oldField] ?? '' };
+                        delete nextRow[oldField];
+                        return nextRow;
+                    }),
+                },
+            };
+        }));
+        if (didCommit) {
+            setColumnNameDrafts((prev) => {
+                const next = { ...prev };
+                delete next[draftKey];
+                return next;
+            });
+        }
+    };
+    const addGridColumn = (componentId) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            const columns = getGridColumns(c);
+            const field = nextGridField(columns);
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    columnDefs: [...columns, { field }],
+                    rowData: getGridRows(c).map((row) => ({ ...row, [field]: '' })),
+                },
+            };
+        }));
+    };
+    const removeGridColumn = (componentId, field) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    columnDefs: getGridColumns(c).filter((col) => col.field !== field),
+                    rowData: getGridRows(c).map((row) => {
+                        const nextRow = { ...row };
+                        delete nextRow[field];
+                        return nextRow;
+                    }),
+                },
+            };
+        }));
+    };
+    const updateGridCell = (componentId, rowIndex, field, value) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            const rows = getGridRows(c);
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    rowData: rows.map((row, index) => index === rowIndex
+                        ? {
+                            ...row,
+                            [field]: value,
+                        }
+                        : row),
+                },
+            };
+        }));
+    };
+    const addGridRow = (componentId) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            const cols = getVisibleGridColumns(c);
+            const emptyRow = Object.fromEntries(cols.map((col) => [col.field, '']));
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    rowData: [...getGridRows(c), emptyRow],
+                },
+            };
+        }));
+    };
+    const removeGridRow = (componentId, rowIndex) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    rowData: getGridRows(c).filter((_, index) => index !== rowIndex),
+                },
+            };
+        }));
+    };
     const onItemPointerDown = (e, c) => {
-        if (e.target.closest('[data-delete-btn],[data-resize-handle]'))
+        if (e.target.closest('[data-delete-btn],[data-resize-handle],[data-grid-editor]'))
             return;
         const card = e.currentTarget;
         const r = card.getBoundingClientRect();
@@ -314,6 +486,7 @@ function App() {
                 }
             }
             setComponents(parsed.components);
+            setColumnNameDrafts({});
             message.success('JSON applied to canvas');
             setJsonTab('visual');
         }
@@ -387,7 +560,7 @@ function App() {
                                                                     gap: 8,
                                                                     height: '100%',
                                                                     width: '100%',
-                                                                }, children: [_jsx("div", { style: { flex: 1, minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c }) }), _jsx(Button, { type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove component", "data-delete-btn": true, onClick: () => removeById(c.id), style: { flexShrink: 0, alignSelf: 'flex-start' } })] }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
+                                                                }, children: [_jsx("div", { style: { flex: 1, minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c, columnNameDrafts: columnNameDrafts, onGridColumnDraftChange: updateGridColumnDraft, onGridColumnChange: updateGridColumn, onGridAddColumn: addGridColumn, onGridRemoveColumn: removeGridColumn, onGridCellChange: updateGridCell, onGridAddRow: addGridRow, onGridRemoveRow: removeGridRow }) }), _jsx(Button, { type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove component", "data-delete-btn": true, onClick: () => removeById(c.id), style: { flexShrink: 0, alignSelf: 'flex-start' } })] }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
                                                                     position: 'absolute',
                                                                     right: 2,
                                                                     bottom: 2,

@@ -25,6 +25,8 @@ type ScreenComponentType = 'Input' | 'Button' | 'AgGrid';
 const GRID = 8;
 
 type ComponentLayout = { x: number; y: number; width?: number; height?: number };
+type GridColumnDef = { field?: string };
+type GridRow = Record<string, string | number | boolean | null>;
 
 function snap(n: number) {
   return Math.round(n / GRID) * GRID;
@@ -112,7 +114,7 @@ function defaultPropsFor(type: ScreenComponentType): Record<string, unknown> {
     case 'AgGrid':
       return {
         columnDefs: [{ field: 'id' }, { field: 'name' }],
-        rowData: [],
+        rowData: [{ id: '', name: '' }],
       };
     default:
       return {};
@@ -127,7 +129,58 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
 
-function CanvasPreview({ item }: { item: ScreenComponent }) {
+function getGridColumns(item: ScreenComponent): GridColumnDef[] {
+  const raw = item.props?.columnDefs;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((col): col is GridColumnDef => typeof col === 'object' && col !== null);
+}
+
+function getGridRows(item: ScreenComponent): GridRow[] {
+  const raw = item.props?.rowData;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((row): row is GridRow => typeof row === 'object' && row !== null);
+}
+
+function getVisibleGridColumns(item: ScreenComponent): GridColumnDef[] {
+  return getGridColumns(item).filter((col) => typeof col.field === 'string' && col.field);
+}
+
+function nextGridField(columns: GridColumnDef[]) {
+  const fields = new Set(columns.map((col) => col.field).filter(Boolean));
+  let index = fields.size + 1;
+  let field = `column${index}`;
+  while (fields.has(field)) {
+    index += 1;
+    field = `column${index}`;
+  }
+  return field;
+}
+
+function columnDraftKey(componentId: string, field: string) {
+  return `${componentId}:${field}`;
+}
+
+function CanvasPreview({
+  item,
+  columnNameDrafts,
+  onGridColumnDraftChange,
+  onGridColumnChange,
+  onGridAddColumn,
+  onGridRemoveColumn,
+  onGridCellChange,
+  onGridAddRow,
+  onGridRemoveRow,
+}: {
+  item: ScreenComponent;
+  columnNameDrafts: Record<string, string>;
+  onGridColumnDraftChange: (componentId: string, field: string, value: string) => void;
+  onGridColumnChange: (componentId: string, oldField: string) => void;
+  onGridAddColumn: (componentId: string) => void;
+  onGridRemoveColumn: (componentId: string, field: string) => void;
+  onGridCellChange: (componentId: string, rowIndex: number, field: string, value: string) => void;
+  onGridAddRow: (componentId: string) => void;
+  onGridRemoveRow: (componentId: string, rowIndex: number) => void;
+}) {
   if (item.type === 'Input') {
     return (
       <Input
@@ -145,24 +198,112 @@ function CanvasPreview({ item }: { item: ScreenComponent }) {
     );
   }
   if (item.type === 'AgGrid') {
-    const cols = (item.props?.columnDefs as { field?: string }[]) ?? [];
+    const cols = getVisibleGridColumns(item);
+    const rows = getGridRows(item);
     return (
       <div
+        data-grid-editor
         style={{
-          border: '1px dashed #91caff',
-          borderRadius: 8,
-          padding: 12,
-          background: '#e6f4ff',
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
           overflow: 'auto',
+          border: '1px solid #d9d9d9',
+          borderRadius: 6,
+          background: '#fff',
         }}
       >
-        <Typography.Text strong>AgGrid</Typography.Text>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4 }}>
-          Columns: {cols.map((col) => col.field ?? '?').join(', ') || '(none)'}
-        </Typography.Paragraph>
+        <Space size={4} wrap style={{ padding: 4, borderBottom: '1px solid #f0f0f0' }}>
+          <Button
+            size="small"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onGridAddColumn(item.id)}
+          >
+            Add column
+          </Button>
+          <Button
+            size="small"
+            type="link"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onGridAddRow(item.id)}
+            style={{ paddingInline: 4 }}
+          >
+            Add row
+          </Button>
+        </Space>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th
+                  key={col.field}
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: 4,
+                    textAlign: 'left',
+                  }}
+                >
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Input
+                      size="small"
+                      value={columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onChange={(e) =>
+                        onGridColumnDraftChange(item.id, col.field ?? '', e.target.value)
+                      }
+                      onBlur={() => onGridColumnChange(item.id, col.field ?? '')}
+                      onPressEnter={(e) => e.currentTarget.blur()}
+                    />
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      aria-label="Remove column"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => onGridRemoveColumn(item.id, col.field ?? '')}
+                    />
+                  </Space.Compact>
+                </th>
+              ))}
+              <th style={{ borderBottom: '1px solid #f0f0f0', width: 42 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {cols.map((col) => {
+                  const field = col.field ?? '';
+                  return (
+                    <td key={field} style={{ padding: 3, verticalAlign: 'top' }}>
+                      <Input
+                        size="small"
+                        value={String(row[field] ?? '')}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onChange={(e) =>
+                          onGridCellChange(item.id, rowIndex, field, e.target.value)
+                        }
+                      />
+                    </td>
+                  );
+                })}
+                <td style={{ padding: 3, verticalAlign: 'top' }}>
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    aria-label="Remove row"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => onGridRemoveRow(item.id, rowIndex)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -182,6 +323,7 @@ function App() {
   const [jsonDraft, setJsonDraft] = useState(() =>
     JSON.stringify({ components: DEFAULT_COMPONENTS }, null, 2),
   );
+  const [columnNameDrafts, setColumnNameDrafts] = useState<Record<string, string>>({});
 
   const canvasInnerRef = useRef<HTMLDivElement>(null);
   const dragInfoRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -249,8 +391,158 @@ function App() {
     setComponents((prev) => prev.filter((c) => c.id !== id));
   };
 
+  const updateGridColumnDraft = (componentId: string, field: string, value: string) => {
+    setColumnNameDrafts((prev) => ({
+      ...prev,
+      [columnDraftKey(componentId, field)]: value,
+    }));
+  };
+
+  const updateGridColumn = (componentId: string, oldField: string) => {
+    const draftKey = columnDraftKey(componentId, oldField);
+    const newField = (columnNameDrafts[draftKey] ?? oldField).trim();
+    if (!newField) {
+      message.error('Column name is required.');
+      setColumnNameDrafts((prev) => ({ ...prev, [draftKey]: oldField }));
+      return;
+    }
+    let didCommit = false;
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        const columns = getGridColumns(c);
+        if (oldField !== newField && columns.some((col) => col.field === newField)) {
+          message.error('Column name already exists.');
+          setColumnNameDrafts((drafts) => ({ ...drafts, [draftKey]: oldField }));
+          return c;
+        }
+        didCommit = true;
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            columnDefs: columns.map((col) =>
+              col.field === oldField
+                ? {
+                    ...col,
+                    field: newField,
+                  }
+                : col,
+            ),
+            rowData: getGridRows(c).map((row) => {
+              if (oldField === newField) return row;
+              const nextRow = { ...row, [newField]: row[oldField] ?? '' };
+              delete nextRow[oldField];
+              return nextRow;
+            }),
+          },
+        };
+      }),
+    );
+    if (didCommit) {
+      setColumnNameDrafts((prev) => {
+        const next = { ...prev };
+        delete next[draftKey];
+        return next;
+      });
+    }
+  };
+
+  const addGridColumn = (componentId: string) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        const columns = getGridColumns(c);
+        const field = nextGridField(columns);
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            columnDefs: [...columns, { field }],
+            rowData: getGridRows(c).map((row) => ({ ...row, [field]: '' })),
+          },
+        };
+      }),
+    );
+  };
+
+  const removeGridColumn = (componentId: string, field: string) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            columnDefs: getGridColumns(c).filter((col) => col.field !== field),
+            rowData: getGridRows(c).map((row) => {
+              const nextRow = { ...row };
+              delete nextRow[field];
+              return nextRow;
+            }),
+          },
+        };
+      }),
+    );
+  };
+
+  const updateGridCell = (componentId: string, rowIndex: number, field: string, value: string) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        const rows = getGridRows(c);
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            rowData: rows.map((row, index) =>
+              index === rowIndex
+                ? {
+                    ...row,
+                    [field]: value,
+                  }
+                : row,
+            ),
+          },
+        };
+      }),
+    );
+  };
+
+  const addGridRow = (componentId: string) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        const cols = getVisibleGridColumns(c);
+        const emptyRow = Object.fromEntries(cols.map((col) => [col.field, '']));
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            rowData: [...getGridRows(c), emptyRow],
+          },
+        };
+      }),
+    );
+  };
+
+  const removeGridRow = (componentId: string, rowIndex: number) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            rowData: getGridRows(c).filter((_, index) => index !== rowIndex),
+          },
+        };
+      }),
+    );
+  };
+
   const onItemPointerDown = (e: React.PointerEvent, c: ScreenComponent) => {
-    if ((e.target as HTMLElement).closest('[data-delete-btn],[data-resize-handle]')) return;
+    if ((e.target as HTMLElement).closest('[data-delete-btn],[data-resize-handle],[data-grid-editor]')) return;
     const card = e.currentTarget as HTMLElement;
     const r = card.getBoundingClientRect();
     dragInfoRef.current = {
@@ -394,6 +686,7 @@ function App() {
         }
       }
       setComponents(parsed.components as ScreenComponent[]);
+      setColumnNameDrafts({});
       message.success('JSON applied to canvas');
       setJsonTab('visual');
     } catch {
@@ -578,7 +871,17 @@ function App() {
                                 }}
                               >
                                 <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-                                  <CanvasPreview item={c} />
+                                  <CanvasPreview
+                                    item={c}
+                                    columnNameDrafts={columnNameDrafts}
+                                    onGridColumnDraftChange={updateGridColumnDraft}
+                                    onGridColumnChange={updateGridColumn}
+                                    onGridAddColumn={addGridColumn}
+                                    onGridRemoveColumn={removeGridColumn}
+                                    onGridCellChange={updateGridCell}
+                                    onGridAddRow={addGridRow}
+                                    onGridRemoveRow={removeGridRow}
+                                  />
                                 </div>
                                 <Button
                                   type="text"

@@ -1,3 +1,4 @@
+<<<<<<< ours
 # Web Screen Builder - MVP Step 1
 
 처음에는 이것만 만들어 시작합니다.
@@ -50,3 +51,4 @@ npm run build
 cd backend
 mvn test
 ```
+

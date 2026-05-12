@@ -7,33 +7,65 @@ import axios from 'axios';
 import 'antd/dist/reset.css';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
+function defaultSize(type) {
+    switch (type) {
+        case 'Input':
+            return { w: 256, h: 40 };
+        case 'Button':
+            return { w: 120, h: 40 };
+        case 'AgGrid':
+            return { w: 400, h: 200 };
+        default:
+            return { w: 160, h: 120 };
+    }
+}
+function effectiveLayout(c) {
+    const d = defaultSize(c.type);
+    return {
+        x: c.layout?.x ?? 0,
+        y: c.layout?.y ?? 0,
+        w: typeof c.layout?.width === 'number' ? c.layout.width : d.w,
+        h: typeof c.layout?.height === 'number' ? c.layout.height : d.h,
+    };
+}
 function getStackPosition(index) {
     return { x: 12, y: 12 + index * 80 };
+}
+function getGridColumnDefs(props) {
+    const columnDefs = Array.isArray(props?.columnDefs) ? props.columnDefs : [];
+    return columnDefs.map((columnDef) => ({
+        ...columnDef,
+        cellDataType: false,
+    }));
 }
 function DynamicRenderer({ components }) {
     const placed = components.map((c, index) => {
         const hasLayout = c.layout && typeof c.layout.x === 'number' && typeof c.layout.y === 'number';
         const pos = hasLayout ? { x: c.layout.x, y: c.layout.y } : getStackPosition(index);
+        const L = effectiveLayout(c);
         const z = c.zIndex ?? (index + 1);
-        const bottom = pos.y + (c.type === 'AgGrid' ? 260 : c.type === 'Input' ? 44 : 44);
-        return { c, pos, z, bottom };
+        const bottom = pos.y + L.h;
+        return { c, pos, z, bottom, L };
     });
     const canvasHeight = Math.max(320, ...placed.map((p) => p.bottom), 12 + components.length * 80);
-    return (_jsx("div", { style: { position: 'relative', minHeight: canvasHeight, width: '100%' }, children: placed.map(({ c, pos, z }) => {
+    return (_jsx("div", { style: { position: 'relative', minHeight: canvasHeight, width: '100%' }, children: placed.map(({ c, pos, z, L }) => {
             const common = {
                 position: 'absolute',
                 left: pos.x,
                 top: pos.y,
                 zIndex: z,
+                width: L.w,
+                height: L.h,
+                boxSizing: 'border-box',
             };
             if (c.type === 'Input') {
-                return (_jsx("div", { style: common, children: _jsx(Input, { placeholder: c.props?.placeholder, style: { width: 280 } }) }, c.id));
+                return (_jsx("div", { style: common, children: _jsx(Input, { placeholder: c.props?.placeholder, style: { width: '100%', height: '100%', boxSizing: 'border-box' } }) }, c.id));
             }
             if (c.type === 'Button') {
-                return (_jsx("div", { style: common, children: _jsx(Button, { type: "primary", children: c.props?.text ?? 'Button' }) }, c.id));
+                return (_jsx("div", { style: common, children: _jsx(Button, { type: "primary", style: { width: '100%', height: '100%' }, children: c.props?.text ?? 'Button' }) }, c.id));
             }
             if (c.type === 'AgGrid') {
-                return (_jsx("div", { style: { ...common, width: 'min(100%, 720px)', height: 240 }, className: "ag-theme-quartz", children: _jsx(AgGridReact, { rowData: c.props?.rowData ?? [], columnDefs: c.props?.columnDefs ?? [] }) }, c.id));
+                return (_jsx("div", { style: { ...common }, className: "ag-theme-quartz", children: _jsx(AgGridReact, { rowData: c.props?.rowData ?? [], columnDefs: getGridColumnDefs(c.props) }) }, c.id));
             }
             return null;
         }) }));

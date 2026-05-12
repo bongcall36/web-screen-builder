@@ -42,6 +42,14 @@ function getStackPosition(index: number) {
   return { x: 12, y: 12 + index * 80 };
 }
 
+function getGridColumnDefs(props: any) {
+  const columnDefs = Array.isArray(props?.columnDefs) ? props.columnDefs : [];
+  return columnDefs.map((columnDef: any) => ({
+    ...columnDef,
+    cellDataType: false,
+  }));
+}
+
 function DynamicRenderer({ components }: { components: ScreenComponent[] }) {
   const placed = components.map((c, index) => {
     const hasLayout =
@@ -89,7 +97,10 @@ function DynamicRenderer({ components }: { components: ScreenComponent[] }) {
         if (c.type === 'AgGrid') {
           return (
             <div key={c.id} style={{ ...common }} className="ag-theme-quartz">
-              <AgGridReact rowData={c.props?.rowData ?? []} columnDefs={c.props?.columnDefs ?? []} />
+              <AgGridReact
+                rowData={c.props?.rowData ?? []}
+                columnDefs={getGridColumnDefs(c.props)}
+              />
             </div>
           );
         }

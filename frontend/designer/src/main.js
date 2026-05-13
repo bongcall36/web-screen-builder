@@ -1,20 +1,43 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Button, Card, Collapse, Form, Input, Layout, List, Select, Space, Tabs, Tree, Typography, message, } from 'antd';
-import { DeleteOutlined, HolderOutlined } from '@ant-design/icons';
+import { Button, Card, Checkbox, Collapse, DatePicker, Form, Input, Layout, List, Modal, Select, Space, Tabs, Tooltip, Tree, Typography, message, } from 'antd';
+import { CalendarOutlined, CheckSquareOutlined, DeleteOutlined, EditOutlined, FontSizeOutlined, FormOutlined, OneToOneOutlined, TableOutlined, UnorderedListOutlined, } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import axios from 'axios';
 const { Header, Content, Sider } = Layout;
+const SCREEN_COMPONENT_TYPES = [
+    'Text',
+    'Input',
+    'Select',
+    'Checkbox',
+    'DatePicker',
+    'Button',
+    'AgGrid',
+];
 /** Pixel grid for move + resize snap */
 const GRID = 8;
+const GRID_DATA_TYPE_OPTIONS = [
+    { value: 'string', label: 'String' },
+    { value: 'number', label: 'Number' },
+    { value: 'boolean', label: 'Boolean' },
+    { value: 'date', label: 'Date' },
+];
 function snap(n) {
     return Math.round(n / GRID) * GRID;
 }
 function defaultSize(type) {
     switch (type) {
+        case 'Text':
+            return { w: 200, h: 32 };
         case 'Input':
             return { w: 256, h: 40 };
+        case 'Select':
+            return { w: 220, h: 40 };
+        case 'Checkbox':
+            return { w: 160, h: 32 };
+        case 'DatePicker':
+            return { w: 180, h: 40 };
         case 'Button':
             return { w: 160, h: 40 };
         case 'AgGrid':
@@ -25,8 +48,16 @@ function defaultSize(type) {
 }
 function minSize(type) {
     switch (type) {
+        case 'Text':
+            return { w: 80, h: 24 };
         case 'Input':
             return { w: 120, h: 32 };
+        case 'Select':
+            return { w: 120, h: 32 };
+        case 'Checkbox':
+            return { w: 120, h: 24 };
+        case 'DatePicker':
+            return { w: 140, h: 32 };
         case 'Button':
             return { w: 120, h: 32 };
         case 'AgGrid':
@@ -62,7 +93,10 @@ const DEFAULT_COMPONENTS = [
         type: 'AgGrid',
         layout: { x: 16, y: 72, width: 400, height: 200 },
         props: {
-            columnDefs: [{ field: 'id' }, { field: 'name' }],
+            columnDefs: [
+                { field: 'id', dataType: 'number' },
+                { field: 'name', dataType: 'string' },
+            ],
             rowData: [
                 { id: 1, name: 'Alice' },
                 { id: 2, name: 'Bob' },
@@ -97,8 +131,22 @@ const COMPONENT_DRAG_MIME = 'application/x-wsb-component';
 const COMPONENT_BIND_MIME = 'application/x-wsb-bind-component';
 function defaultPropsFor(type) {
     switch (type) {
+        case 'Text':
+            return { text: 'Label' };
         case 'Input':
             return { placeholder: 'Placeholder' };
+        case 'Select':
+            return {
+                placeholder: 'Select',
+                options: [
+                    { label: 'Option 1', value: 'option1' },
+                    { label: 'Option 2', value: 'option2' },
+                ],
+            };
+        case 'Checkbox':
+            return { label: 'Checkbox', checked: false };
+        case 'DatePicker':
+            return { placeholder: 'Select date' };
         case 'Button':
             return { text: 'Button' };
         case 'AgGrid':
@@ -131,6 +179,24 @@ function getGridRows(item) {
 function getComponentOptions(components, type) {
     return components.filter((component) => component.type === type);
 }
+function isInputLikeComponent(type) {
+    return type === 'Input' || type === 'Select' || type === 'Checkbox' || type === 'DatePicker';
+}
+function isScreenComponentType(value) {
+    return SCREEN_COMPONENT_TYPES.includes(value);
+}
+function getSelectOptions(item) {
+    const raw = item.props?.options;
+    if (!Array.isArray(raw))
+        return [];
+    return raw
+        .filter((option) => typeof option === 'object' && option !== null)
+        .map((option) => ({
+        label: String(option.label ?? option.value ?? ''),
+        value: String(option.value ?? option.label ?? ''),
+    }))
+        .filter((option) => option.value);
+}
 function sanitizeCommunicationsForComponents(communications, components) {
     const componentsById = new Map(components.map((component) => [component.id, component]));
     return communications.map((comm) => ({
@@ -139,7 +205,10 @@ function sanitizeCommunicationsForComponents(communications, components) {
         triggerComponentId: componentsById.get(comm.triggerComponentId)?.type === 'Button' ? comm.triggerComponentId : '',
         inputBindings: comm.inputBindings.map((binding) => ({
             ...binding,
-            componentId: componentsById.get(binding.componentId)?.type === 'Input' ? binding.componentId : '',
+            componentId: componentsById.has(binding.componentId) &&
+                isInputLikeComponent(componentsById.get(binding.componentId).type)
+                ? binding.componentId
+                : '',
         })),
         outputBindings: comm.outputBindings.map((binding) => ({
             ...binding,
@@ -156,7 +225,11 @@ function stripScreenCommunication(comm) {
 }
 function bindingChipStyle(type) {
     const colors = {
+        Text: { bg: '#f5f5f5', border: '#d9d9d9', text: '#434343' },
         Input: { bg: '#e6f4ff', border: '#91caff', text: '#0958d9' },
+        Select: { bg: '#e6fffb', border: '#87e8de', text: '#006d75' },
+        Checkbox: { bg: '#f9f0ff', border: '#d3adf7', text: '#531dab' },
+        DatePicker: { bg: '#fff1f0', border: '#ffa39e', text: '#a8071a' },
         Button: { bg: '#fff7e6', border: '#ffd591', text: '#ad4e00' },
         AgGrid: { bg: '#f6ffed', border: '#b7eb8f', text: '#237804' },
     }[type];
@@ -183,6 +256,33 @@ function bindingChipStyle(type) {
 function getVisibleGridColumns(item) {
     return getGridColumns(item).filter((col) => typeof col.field === 'string' && col.field);
 }
+function getColumnDataType(column) {
+    return GRID_DATA_TYPE_OPTIONS.some((option) => option.value === column.dataType)
+        ? column.dataType
+        : 'string';
+}
+function inferDataType(values) {
+    const present = values.filter((value) => value !== null && value !== '');
+    if (present.length === 0)
+        return 'string';
+    if (present.every((value) => typeof value === 'boolean'))
+        return 'boolean';
+    if (present.every((value) => typeof value === 'number'))
+        return 'number';
+    return 'string';
+}
+function coerceGridValue(value, dataType) {
+    if (value.trim() === '')
+        return '';
+    if (dataType === 'number') {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : value;
+    }
+    if (dataType === 'boolean') {
+        return value.toLowerCase() === 'true';
+    }
+    return value;
+}
 function nextGridField(columns) {
     const fields = new Set(columns.map((col) => col.field).filter(Boolean));
     let index = fields.size + 1;
@@ -198,7 +298,10 @@ function columnsFromRows(rows) {
     rows.forEach((row) => {
         Object.keys(row).forEach((field) => fields.add(field));
     });
-    return Array.from(fields).map((field) => ({ field }));
+    return Array.from(fields).map((field) => ({
+        field,
+        dataType: inferDataType(rows.map((row) => row[field])),
+    }));
 }
 function columnDraftKey(componentId, field) {
     return `${componentId}:${field}`;
@@ -219,21 +322,30 @@ function nextScreenId(screens) {
     }
     return screenId;
 }
-function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridAddColumn, onGridRemoveColumn, onGridSaveRows, onButtonTextChange, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
+function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridColumnDataTypeChange, onGridAddColumn, onGridRemoveColumn, onGridSaveRows, onButtonTextChange, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
+    if (item.type === 'Text') {
+        return (_jsx(Typography.Text, { style: {
+                display: 'flex',
+                alignItems: 'center',
+                width: '100%',
+                height: '100%',
+                fontWeight: 600,
+            }, children: item.props?.text ?? 'Label' }));
+    }
     if (item.type === 'Input') {
         return (_jsx(Input, { readOnly: true, placeholder: item.props?.placeholder ?? 'Input', style: { width: '100%', height: '100%', boxSizing: 'border-box' } }));
     }
+    if (item.type === 'Select') {
+        return (_jsx(Select, { disabled: true, placeholder: item.props?.placeholder ?? 'Select', options: getSelectOptions(item), style: { width: '100%', height: '100%' } }));
+    }
+    if (item.type === 'Checkbox') {
+        return (_jsx(Checkbox, { checked: Boolean(item.props?.checked), disabled: true, children: item.props?.label ?? 'Checkbox' }));
+    }
+    if (item.type === 'DatePicker') {
+        return (_jsx(DatePicker, { disabled: true, placeholder: item.props?.placeholder ?? 'Select date', style: { width: '100%', height: '100%' } }));
+    }
     if (item.type === 'Button') {
-        return (_jsx(Input, { value: item.props?.text ?? 'Button', onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onButtonTextChange(item.id, e.target.value), style: {
-                width: '100%',
-                height: '100%',
-                boxSizing: 'border-box',
-                textAlign: 'center',
-                color: '#fff',
-                background: '#1677ff',
-                borderColor: '#1677ff',
-                fontWeight: 600,
-            } }));
+        return (_jsx(Button, { type: "primary", disabled: true, style: { width: '100%', height: '100%' }, children: item.props?.text ?? 'Button' }));
     }
     if (item.type === 'AgGrid') {
         const cols = getVisibleGridColumns(item);
@@ -252,7 +364,7 @@ function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGrid
                                             fontWeight: 600,
                                             padding: 4,
                                             textAlign: 'left',
-                                        }, children: _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { size: "small", value: columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field, onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridColumnDraftChange(item.id, col.field ?? '', e.target.value), onBlur: () => onGridColumnChange(item.id, col.field ?? ''), onPressEnter: (e) => e.currentTarget.blur() }), _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove column", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveColumn(item.id, col.field ?? '') })] }) }, col.field))), _jsx("th", { style: { borderBottom: '1px solid #f0f0f0', width: 42 } })] }) }), _jsx("tbody", { children: rows.map((row, rowIndex) => (_jsxs("tr", { children: [cols.map((col) => {
+                                        }, children: _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { size: "small", value: columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field, onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridColumnDraftChange(item.id, col.field ?? '', e.target.value), onBlur: () => onGridColumnChange(item.id, col.field ?? ''), onPressEnter: (e) => e.currentTarget.blur() }), _jsx("div", { onPointerDown: (e) => e.stopPropagation(), children: _jsx(Select, { size: "small", value: getColumnDataType(col), options: GRID_DATA_TYPE_OPTIONS, onChange: (value) => onGridColumnDataTypeChange(item.id, col.field ?? '', value), style: { width: 96 } }) }), _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove column", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveColumn(item.id, col.field ?? '') })] }) }, col.field))), _jsx("th", { style: { borderBottom: '1px solid #f0f0f0', width: 42 } })] }) }), _jsx("tbody", { children: rows.map((row, rowIndex) => (_jsxs("tr", { children: [cols.map((col) => {
                                         const field = col.field ?? '';
                                         return (_jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Input, { size: "small", value: String(row[field] ?? ''), onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridCellChange(item.id, rowIndex, field, e.target.value) }) }, field));
                                     }), _jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove row", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveRow(item.id, rowIndex) }) })] }, rowIndex))) })] })] }));
@@ -260,10 +372,23 @@ function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGrid
     return null;
 }
 const TOOLBOX = [
+    { type: 'Text', title: 'Text', description: 'Static label' },
     { type: 'Input', title: 'Input', description: 'Text field' },
+    { type: 'Select', title: 'Select', description: 'Option picker' },
+    { type: 'Checkbox', title: 'Checkbox', description: 'True/false input' },
+    { type: 'DatePicker', title: 'DatePicker', description: 'Date input' },
     { type: 'Button', title: 'Button', description: 'Primary action' },
     { type: 'AgGrid', title: 'AgGrid', description: 'Data table' },
 ];
+const TOOLBOX_ICONS = {
+    Text: _jsx(FontSizeOutlined, {}),
+    Input: _jsx(FormOutlined, {}),
+    Select: _jsx(UnorderedListOutlined, {}),
+    Checkbox: _jsx(CheckSquareOutlined, {}),
+    DatePicker: _jsx(CalendarOutlined, {}),
+    Button: _jsx(OneToOneOutlined, {}),
+    AgGrid: _jsx(TableOutlined, {}),
+};
 function menuTargetType(menu) {
     return menu.targetType === 'folder' ? 'folder' : 'screen';
 }
@@ -299,6 +424,7 @@ function toActiveKeys(keys) {
 }
 function App() {
     const [form] = Form.useForm();
+    const [token, setToken] = useState('');
     const watchedScreenId = Form.useWatch('screenId', form) ?? 'sample-screen';
     const watchedScreenName = Form.useWatch('name', form) ?? 'Sample Screen';
     const watchedMenuId = Form.useWatch('menuId', form) ?? 'm1';
@@ -313,11 +439,17 @@ function App() {
     const [columnNameDrafts, setColumnNameDrafts] = useState({});
     const [openSettings, setOpenSettings] = useState([]);
     const [editingMenuId, setEditingMenuId] = useState('m1');
+    const [formatsModalOpen, setFormatsModalOpen] = useState(false);
+    const [selectedFormatId, setSelectedFormatId] = useState(DEFAULT_COMMUNICATION_FORMATS[0]?.id ?? '');
+    const [editingComponentId, setEditingComponentId] = useState(null);
     const canvasInnerRef = useRef(null);
     const dragInfoRef = useRef(null);
     const resizeInfoRef = useRef(null);
     const serialized = useMemo(() => JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2), [components, communications]);
     const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
+    const selectedFormat = communicationFormats.find((format) => format.id === selectedFormatId) ??
+        communicationFormats[0];
+    const editingComponent = components.find((component) => component.id === editingComponentId);
     const syncJsonDraftFromComponents = useCallback(() => {
         setJsonDraft(JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2));
     }, [components, communications]);
@@ -330,12 +462,18 @@ function App() {
         setScreens(screenRes.data);
         setMenus(menuRes.data);
         setCommunicationFormats(formatRes.data);
+        setSelectedFormatId((prev) => formatRes.data.some((format) => format.id === prev)
+            ? prev
+            : formatRes.data[0]?.id ?? '');
     }, []);
     useEffect(() => {
+        if (!token) {
+            return;
+        }
         loadDesignerMetadata().catch(() => {
             message.warning('Could not load screen and menu list.');
         });
-    }, [loadDesignerMetadata]);
+    }, [loadDesignerMetadata, token]);
     useEffect(() => {
         setCommunications((prev) => {
             const next = sanitizeCommunicationsForComponents(prev, components);
@@ -450,7 +588,7 @@ function App() {
         if (!inner)
             return;
         const raw = e.dataTransfer.getData(COMPONENT_DRAG_MIME);
-        if (raw !== 'Input' && raw !== 'Button' && raw !== 'AgGrid')
+        if (!isScreenComponentType(raw))
             return;
         const rect = inner.getBoundingClientRect();
         const ds = defaultSize(raw);
@@ -473,12 +611,24 @@ function App() {
     };
     const removeById = (id) => {
         setComponents((prev) => prev.filter((c) => c.id !== id));
+        setEditingComponentId((current) => (current === id ? null : current));
         setCommunications((prev) => prev.map((comm) => ({
             ...comm,
             inputBindings: comm.inputBindings.filter((binding) => binding.componentId !== id),
             outputBindings: comm.outputBindings.filter((binding) => binding.componentId !== id),
             triggerComponentId: comm.triggerComponentId === id ? '' : comm.triggerComponentId,
         })));
+    };
+    const updateComponentProps = (componentId, patch) => {
+        setComponents((prev) => prev.map((component) => component.id === componentId
+            ? {
+                ...component,
+                props: {
+                    ...component.props,
+                    ...patch,
+                },
+            }
+            : component));
     };
     const updateComponentId = (oldId, newIdValue) => {
         const nextId = newIdValue.trim();
@@ -505,6 +655,7 @@ function App() {
                 componentId: binding.componentId === oldId ? nextId : binding.componentId,
             })),
         })));
+        setEditingComponentId((current) => (current === oldId ? nextId : current));
         message.success(`Component ID changed to ${nextId}`);
     };
     const updateCommunication = (actionId, patch) => {
@@ -529,6 +680,30 @@ function App() {
                     : [{ field: 'rows', componentId: '' }]).map((binding, bindingIndex) => bindingIndex === index ? { ...binding, ...patch } : binding),
             }
             : comm));
+    };
+    const alignBindingsToFields = (fields, bindings, fallbackField) => {
+        const nextFields = fields.length > 0 ? fields : [fallbackField];
+        return nextFields.map((field, index) => ({
+            field,
+            componentId: bindings.find((binding) => binding.field === field)?.componentId ??
+                bindings[index]?.componentId ??
+                '',
+        }));
+    };
+    const changeCommunicationFormat = (comm, nextFormatId) => {
+        const format = communicationFormats.find((item) => item.id === nextFormatId);
+        const nextInputBindings = alignBindingsToFields(format?.inputFields ?? [], comm.inputBindings, 'keyword');
+        const nextOutputBindings = alignBindingsToFields(format?.outputFields ?? [], comm.outputBindings, 'rows');
+        updateCommunication(comm.id, {
+            formatId: nextFormatId,
+            inputBindings: nextInputBindings,
+            outputBindings: nextOutputBindings,
+        });
+        nextOutputBindings.forEach((binding) => {
+            if (binding.componentId) {
+                applyFormatRowsToEmptyGrid(comm.id, binding.componentId, nextFormatId);
+            }
+        });
     };
     const addCommunicationInput = (actionId) => {
         setCommunications((prev) => prev.map((comm) => comm.id === actionId
@@ -641,6 +816,7 @@ function App() {
                 sampleRows: [],
             },
         ]);
+        setSelectedFormatId(id);
         message.success(`Added ${id}`);
     };
     const saveCommunicationFormat = async (format) => {
@@ -655,7 +831,11 @@ function App() {
     const deleteCommunicationFormat = async (formatId) => {
         try {
             await axios.delete(`http://localhost:8080/api/communications/formats/${formatId}`);
-            setCommunicationFormats((prev) => prev.filter((format) => format.id !== formatId));
+            setCommunicationFormats((prev) => {
+                const next = prev.filter((format) => format.id !== formatId);
+                setSelectedFormatId((current) => current === formatId ? next[0]?.id ?? '' : current);
+                return next;
+            });
             setCommunications((prev) => prev.map((comm) => (comm.formatId === formatId ? { ...comm, formatId: '' } : comm)));
             message.success(`Deleted ${formatId}`);
         }
@@ -676,6 +856,51 @@ function App() {
                 },
             }
             : component));
+    };
+    const updateSelectOption = (componentId, index, patch) => {
+        setComponents((prev) => prev.map((component) => component.id === componentId && component.type === 'Select'
+            ? {
+                ...component,
+                props: {
+                    ...component.props,
+                    options: getSelectOptions(component).map((option, optionIndex) => optionIndex === index ? { ...option, ...patch } : option),
+                },
+            }
+            : component));
+    };
+    const addSelectOption = (componentId) => {
+        setComponents((prev) => prev.map((component) => {
+            if (component.id !== componentId || component.type !== 'Select')
+                return component;
+            const options = getSelectOptions(component);
+            const nextIndex = options.length + 1;
+            return {
+                ...component,
+                props: {
+                    ...component.props,
+                    options: [
+                        ...options,
+                        { label: `Option ${nextIndex}`, value: `option${nextIndex}` },
+                    ],
+                },
+            };
+        }));
+    };
+    const removeSelectOption = (componentId, index) => {
+        setComponents((prev) => prev.map((component) => {
+            if (component.id !== componentId || component.type !== 'Select')
+                return component;
+            const options = getSelectOptions(component);
+            return {
+                ...component,
+                props: {
+                    ...component.props,
+                    options: options.length > 1
+                        ? options.filter((_, optionIndex) => optionIndex !== index)
+                        : options,
+                },
+            };
+        }));
     };
     const bindTriggerComponent = (actionId, componentId) => {
         updateCommunication(actionId, { triggerComponentId: componentId });
@@ -841,6 +1066,23 @@ function App() {
             });
         }
     };
+    const updateGridColumnDataType = (componentId, field, dataType) => {
+        setComponents((prev) => prev.map((c) => {
+            if (c.id !== componentId || c.type !== 'AgGrid')
+                return c;
+            return {
+                ...c,
+                props: {
+                    ...c.props,
+                    columnDefs: getGridColumns(c).map((col) => col.field === field ? { ...col, dataType } : col),
+                    rowData: getGridRows(c).map((row) => ({
+                        ...row,
+                        [field]: coerceGridValue(String(row[field] ?? ''), dataType),
+                    })),
+                },
+            };
+        }));
+    };
     const addGridColumn = (componentId) => {
         setComponents((prev) => prev.map((c) => {
             if (c.id !== componentId || c.type !== 'AgGrid')
@@ -851,7 +1093,7 @@ function App() {
                 ...c,
                 props: {
                     ...c.props,
-                    columnDefs: [...columns, { field }],
+                    columnDefs: [...columns, { field, dataType: 'string' }],
                     rowData: getGridRows(c).map((row) => ({ ...row, [field]: '' })),
                 },
             };
@@ -880,6 +1122,7 @@ function App() {
             if (c.id !== componentId || c.type !== 'AgGrid')
                 return c;
             const rows = getGridRows(c);
+            const dataType = getColumnDataType(getGridColumns(c).find((column) => column.field === field) ?? {});
             return {
                 ...c,
                 props: {
@@ -887,7 +1130,7 @@ function App() {
                     rowData: rows.map((row, index) => index === rowIndex
                         ? {
                             ...row,
-                            [field]: value,
+                            [field]: coerceGridValue(value, dataType),
                         }
                         : row),
                 },
@@ -899,7 +1142,7 @@ function App() {
             if (c.id !== componentId || c.type !== 'AgGrid')
                 return c;
             const cols = getVisibleGridColumns(c);
-            const emptyRow = Object.fromEntries(cols.map((col) => [col.field, '']));
+            const emptyRow = Object.fromEntries(cols.map((col) => [col.field, coerceGridValue('', getColumnDataType(col))]));
             return {
                 ...c,
                 props: {
@@ -923,7 +1166,7 @@ function App() {
         }));
     };
     const onItemPointerDown = (e, c) => {
-        if (e.target.closest('[data-delete-btn],[data-resize-handle],[data-grid-editor],[data-bind-drag]'))
+        if (e.target.closest('[data-delete-btn],[data-resize-handle],[data-grid-editor],[data-select-editor],[data-bind-drag]'))
             return;
         const card = e.currentTarget;
         const r = card.getBoundingClientRect();
@@ -1026,8 +1269,8 @@ function App() {
                 return;
             }
             for (const c of parsed.components) {
-                if (!c || typeof c.id !== 'string' || !['Input', 'Button', 'AgGrid'].includes(c.type)) {
-                    message.error('Each component needs id and type (Input | Button | AgGrid).');
+                if (!c || typeof c.id !== 'string' || !isScreenComponentType(c.type)) {
+                    message.error(`Each component needs id and type (${SCREEN_COMPONENT_TYPES.join(' | ')}).`);
                     return;
                 }
                 if (c.layout !== undefined) {
@@ -1213,16 +1456,93 @@ function App() {
             }
         }
     };
-    return (_jsxs(Layout, { style: { minHeight: '100vh' }, children: [_jsx(Header, { style: { display: 'flex', alignItems: 'center', paddingInline: 24 }, children: _jsx(Typography.Title, { level: 4, style: { color: '#fff', margin: 0 }, children: "Designer MVP" }) }), _jsxs(Layout, { children: [_jsxs(Sider, { width: 260, theme: "light", style: {
-                            borderRight: '1px solid #f0f0f0',
+    const onLogin = async (values) => {
+        try {
+            const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
+            const nextToken = loginRes.data.token;
+            axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
+            setToken(nextToken);
+            await loadDesignerMetadata();
+        }
+        catch {
+            message.error('Login failed (is the backend running on port 8080?)');
+        }
+    };
+    if (!token) {
+        return (_jsx(Content, { style: {
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 24,
+                background: '#fafafa',
+            }, children: _jsxs("div", { style: { width: 420 }, children: [_jsx(Typography.Title, { level: 3, children: "Designer MVP" }), _jsxs(Form, { layout: "vertical", onFinish: onLogin, children: [_jsx(Form.Item, { name: "username", rules: [{ required: true }], children: _jsx(Input, { placeholder: "username" }) }), _jsx(Form.Item, { name: "password", rules: [{ required: true }], children: _jsx(Input.Password, { placeholder: "password" }) }), _jsx(Button, { htmlType: "submit", type: "primary", block: true, children: "Login" })] })] }) }));
+    }
+    return (_jsxs(Layout, { style: { minHeight: '100vh', background: '#f4f6f8' }, children: [_jsx(Header, { style: {
+                    height: 56,
+                    lineHeight: 'normal',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingInline: 20,
+                    background: '#ffffff',
+                    borderBottom: '1px solid #d9dee7',
+                    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                    zIndex: 20,
+                }, children: _jsxs(Space, { size: 12, children: [_jsx("div", { style: {
+                                width: 28,
+                                height: 28,
+                                borderRadius: 6,
+                                background: '#1677ff',
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 700,
+                            }, children: "W" }), _jsxs("div", { children: [_jsx(Typography.Title, { level: 5, style: { margin: 0, lineHeight: 1.1 }, children: "Web Screen Builder" }), _jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [watchedScreenName, " (", watchedScreenId, ")"] })] })] }) }), _jsxs(Layout, { children: [_jsxs(Sider, { width: 300, theme: "light", style: {
+                            borderRight: '1px solid #d9dee7',
+                            background: '#ffffff',
                             padding: 16,
                             overflow: 'auto',
-                        }, children: [_jsx(Typography.Title, { level: 5, style: { marginTop: 0 }, children: "Screens" }), _jsx(Button, { block: true, type: "primary", onClick: newScreen, style: { marginBottom: 12 }, children: "New screen" }), _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff' } }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0 }, children: "Menus" }), _jsxs("div", { style: { marginBottom: 20, background: '#fff', border: '1px solid #f0f0f0', padding: 8 }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: menus.map((menu) => menu.id), onSelect: (keys) => {
+                            height: 'calc(100vh - 56px)',
+                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screens" }), _jsx(Button, { size: "small", type: "primary", onClick: newScreen, children: "New" })] }), _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' } }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 10 }, children: "Menus" }), _jsxs("div", { style: {
+                                    marginBottom: 20,
+                                    background: '#fff',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: 8,
+                                    padding: 8,
+                                }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: menus.map((menu) => menu.id), onSelect: (keys) => {
                                             const menu = menus.find((item) => item.id === String(keys[0] ?? ''));
                                             if (menu) {
                                                 loadMenu(menu);
                                             }
-                                        } }), menus.length === 0 && (_jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: "No saved menus" }))] }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0 }, children: "Components" }), _jsx(Typography.Paragraph, { type: "secondary", style: { fontSize: 12, marginBottom: 12 }, children: "Drag from here onto the canvas. Drag items to move (8px snap). Use the corner handle to resize." }), _jsx(Space, { direction: "vertical", size: 10, style: { width: '100%' }, children: TOOLBOX.map((t) => (_jsx(Card, { size: "small", hoverable: true, draggable: true, onDragStart: (e) => onDragStartToolbox(e, t.type), styles: { body: { padding: 12 } }, children: _jsxs(Space, { align: "start", children: [_jsx(HolderOutlined, { style: { color: '#8c8c8c', marginTop: 2 } }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: t.title }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: t.description }) })] })] }) }, t.type))) })] }), _jsxs(Content, { style: { padding: 24, background: '#fafafa' }, children: [_jsxs(Form, { form: form, layout: "vertical", initialValues: {
+                                        } }), menus.length === 0 && (_jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: "No saved menus" }))] }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 6 }, children: "Components" }), _jsx("div", { style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(4, 1fr)',
+                                    gap: 8,
+                                    padding: 8,
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: 8,
+                                    background: '#f8fafc',
+                                }, children: TOOLBOX.map((t) => (_jsx(Tooltip, { title: `${t.title}: ${t.description}`, children: _jsx("button", { type: "button", draggable: true, onDragStart: (e) => onDragStartToolbox(e, t.type), "aria-label": t.title, style: {
+                                            height: 44,
+                                            border: '1px solid #d9dee7',
+                                            borderRadius: 8,
+                                            background: '#ffffff',
+                                            color: '#334155',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'grab',
+                                            fontSize: 18,
+                                            boxShadow: '0 1px 1px rgba(15,23,42,0.04)',
+                                        }, children: TOOLBOX_ICONS[t.type] }) }, t.type))) })] }), _jsxs(Content, { style: {
+                            padding: 20,
+                            background: '#f4f6f8',
+                            height: 'calc(100vh - 56px)',
+                            overflow: 'auto',
+                            boxSizing: 'border-box',
+                        }, children: [_jsxs(Form, { form: form, layout: "vertical", initialValues: {
                                     screenId: 'sample-screen',
                                     name: 'Sample Screen',
                                     menuId: 'm1',
@@ -1235,30 +1555,61 @@ function App() {
                                             setOpenSettings((prev) => activeKeys.includes('menu')
                                                 ? Array.from(new Set([...prev, 'menu']))
                                                 : prev.filter((key) => key !== 'menu'));
-                                        }, style: { width: '100%', marginBottom: 16, background: '#fff' }, items: [
+                                        }, style: {
+                                            width: '100%',
+                                            marginBottom: 12,
+                                            background: '#fff',
+                                            borderRadius: 8,
+                                            borderColor: '#e5e7eb',
+                                        }, items: [
                                             {
                                                 key: 'menu',
                                                 label: (_jsxs(Space, { size: 8, children: [_jsx(Typography.Text, { strong: true, children: "Menu settings" }), _jsxs(Typography.Text, { type: "secondary", children: [watchedMenuName, " (", watchedMenuId, ")"] })] })),
-                                                children: (_jsxs(Space, { wrap: true, size: "large", style: { width: '100%' }, align: "start", children: [_jsx(Form.Item, { name: "menuId", label: "Menu ID", rules: [{ required: true }], style: { minWidth: 160, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "menuName", label: "Menu Name", rules: [{ required: true }], style: { minWidth: 200, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "menuParentId", label: "Parent Menu ID", style: { minWidth: 180, marginBottom: 0 }, children: _jsx(Input, { placeholder: "empty for root" }) }), _jsxs(Space, { size: "large", align: "start", wrap: false, children: [_jsx(Form.Item, { name: "menuTargetType", label: "Menu Type", rules: [{ required: true }], style: { minWidth: 150, marginBottom: 0 }, children: _jsx(Select, { options: [
+                                                extra: (_jsx(Button, { size: "small", onClick: (e) => {
+                                                        e.stopPropagation();
+                                                        saveMenuOnly();
+                                                    }, children: "Save menu" })),
+                                                children: (_jsxs("div", { style: {
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: 24,
+                                                        width: '100%',
+                                                        flexWrap: 'wrap',
+                                                    }, children: [_jsx(Form.Item, { name: "menuId", label: "Menu ID", rules: [{ required: true }], style: { minWidth: 160, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "menuName", label: "Menu Name", rules: [{ required: true }], style: { minWidth: 200, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "menuParentId", label: "Parent Menu ID", style: { minWidth: 180, marginBottom: 0 }, children: _jsx(Input, { placeholder: "empty for root" }) }), _jsxs(Space, { size: "large", align: "start", wrap: false, children: [_jsx(Form.Item, { name: "menuTargetType", label: "Menu Type", rules: [{ required: true }], style: { minWidth: 150, marginBottom: 0 }, children: _jsx(Select, { options: [
                                                                             { value: 'screen', label: 'Screen' },
                                                                             { value: 'folder', label: 'Folder' },
                                                                         ] }) }), _jsx(Form.Item, { name: "menuOpenMode", label: "Open Mode", rules: [{ required: true }], style: { minWidth: 150, marginBottom: 0 }, children: _jsx(Select, { options: [
                                                                             { value: 'inline', label: 'Inline' },
                                                                             { value: 'popup', label: 'Popup' },
-                                                                        ] }) }), _jsx(Form.Item, { label: " ", style: { marginBottom: 0 }, children: _jsx(Button, { onClick: saveMenuOnly, children: "Save menu only" }) })] })] })),
+                                                                        ] }) })] })] })),
                                             },
                                         ] }), _jsx(Collapse, { activeKey: openSettings.includes('screen') ? ['screen'] : [], onChange: (keys) => {
                                             const activeKeys = toActiveKeys(keys);
                                             setOpenSettings((prev) => activeKeys.includes('screen')
                                                 ? Array.from(new Set([...prev, 'screen']))
                                                 : prev.filter((key) => key !== 'screen'));
-                                        }, style: { width: '100%', background: '#fff' }, items: [
+                                        }, style: {
+                                            width: '100%',
+                                            background: '#fff',
+                                            borderRadius: 8,
+                                            borderColor: '#e5e7eb',
+                                        }, items: [
                                             {
                                                 key: 'screen',
                                                 label: (_jsxs(Space, { size: 8, children: [_jsx(Typography.Text, { strong: true, children: "Screen settings" }), _jsxs(Typography.Text, { type: "secondary", children: [watchedScreenName, " (", watchedScreenId, ")"] })] })),
-                                                children: (_jsxs(Space, { wrap: true, size: "large", style: { width: '100%' }, align: "start", children: [_jsx(Form.Item, { name: "screenId", label: "Screen ID", rules: [{ required: true }], style: { minWidth: 200, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "name", label: "Screen Name", rules: [{ required: true }], style: { minWidth: 240, marginBottom: 0 }, children: _jsx(Input, {}) })] })),
+                                                extra: (_jsx(Button, { size: "small", type: "primary", onClick: (e) => {
+                                                        e.stopPropagation();
+                                                        save();
+                                                    }, children: "Save screen" })),
+                                                children: (_jsxs("div", { style: {
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: 24,
+                                                        width: '100%',
+                                                        flexWrap: 'wrap',
+                                                    }, children: [_jsx(Form.Item, { name: "screenId", label: "Screen ID", rules: [{ required: true }], style: { minWidth: 200, marginBottom: 0 }, children: _jsx(Input, {}) }), _jsx(Form.Item, { name: "name", label: "Screen Name", rules: [{ required: true }], style: { minWidth: 240, marginBottom: 0 }, children: _jsx(Input, {}) })] })),
                                             },
-                                        ] })] }), _jsx(Tabs, { activeKey: jsonTab, tabBarExtraContent: _jsx(Button, { type: "primary", onClick: save, children: "Save screen and menu" }), onChange: (k) => {
+                                        ] })] }), _jsx(Tabs, { activeKey: jsonTab, onChange: (k) => {
                                     setJsonTab(k);
                                     if (k === 'json')
                                         syncJsonDraftFromComponents();
@@ -1266,72 +1617,73 @@ function App() {
                                     {
                                         key: 'visual',
                                         label: 'Screen layout',
-                                        children: (_jsx("div", { onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
+                                        children: (_jsxs("div", { onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
                                                 minHeight: 420,
-                                                background: '#fff',
-                                                border: '2px dashed #d9d9d9',
-                                                borderRadius: 8,
-                                                padding: '40px 16px 16px',
+                                                background: '#ffffff',
+                                                border: '1px solid #d9dee7',
+                                                borderRadius: 10,
+                                                padding: '16px 16px 24px',
                                                 transition: 'border-color 0.2s',
-                                            }, children: _jsx("div", { ref: canvasInnerRef, onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
-                                                    position: 'relative',
-                                                    minHeight: 380,
-                                                    width: '100%',
-                                                    backgroundSize: `${GRID}px ${GRID}px`,
-                                                    backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)`,
-                                                }, children: components.length === 0 ? (_jsx(Typography.Paragraph, { type: "secondary", style: { margin: 0 }, children: "Drop components here from the left toolbox." })) : ([...components]
-                                                    .slice()
-                                                    .sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1))
-                                                    .map((c) => {
-                                                    const L = effectiveLayout(c);
-                                                    return (_jsxs("div", { onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
-                                                            position: 'absolute',
-                                                            left: L.x,
-                                                            top: L.y,
-                                                            width: L.w,
-                                                            height: L.h,
-                                                            zIndex: c.zIndex ?? 1,
-                                                            boxSizing: 'border-box',
-                                                            padding: 8,
-                                                            border: '1px solid #d9d9d9',
-                                                            borderRadius: 8,
-                                                            background: '#fff',
-                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                                                            cursor: 'grab',
-                                                            touchAction: 'none',
-                                                        }, onPointerDown: (e) => onItemPointerDown(e, c), onPointerMove: onItemPointerMove, onPointerUp: onItemPointerUp, onPointerCancel: onItemPointerUp, children: [_jsxs("div", { "data-bind-drag": true, title: `Drag ${c.type} to communication binding`, style: bindingChipStyle(c.type), children: [_jsx("span", { draggable: true, onDragStart: (e) => onDragStartComponentBinding(e, c), style: {
-                                                                            cursor: 'grab',
-                                                                            padding: '4px 8px',
-                                                                            borderRight: '1px solid rgba(0,0,0,0.12)',
-                                                                        }, children: c.type }), _jsx(Input, { size: "small", defaultValue: c.id, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation(), onBlur: (e) => updateComponentId(c.id, e.target.value), onPressEnter: (e) => e.currentTarget.blur(), style: {
-                                                                            width: Math.max(100, Math.min(190, c.id.length * 9 + 44)),
-                                                                            height: 26,
-                                                                            border: 0,
-                                                                            background: 'transparent',
-                                                                            color: 'inherit',
-                                                                            fontSize: 12,
-                                                                            fontWeight: 600,
-                                                                            paddingInline: 8,
-                                                                        } }, c.id)] }), _jsxs("div", { style: {
-                                                                    display: 'flex',
-                                                                    flexDirection: 'row',
-                                                                    alignItems: 'stretch',
-                                                                    gap: 8,
-                                                                    height: '100%',
-                                                                    width: '100%',
-                                                                }, children: [_jsx("div", { style: { flex: 1, minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c, columnNameDrafts: columnNameDrafts, onGridColumnDraftChange: updateGridColumnDraft, onGridColumnChange: updateGridColumn, onGridAddColumn: addGridColumn, onGridRemoveColumn: removeGridColumn, onGridSaveRows: saveGridRowsToLinkedFormat, onButtonTextChange: updateButtonText, onGridCellChange: updateGridCell, onGridAddRow: addGridRow, onGridRemoveRow: removeGridRow }) }), _jsx(Button, { type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove component", "data-delete-btn": true, onClick: () => removeById(c.id), style: { flexShrink: 0, alignSelf: 'flex-start' } })] }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
-                                                                    position: 'absolute',
-                                                                    right: 2,
-                                                                    bottom: 2,
-                                                                    width: 14,
-                                                                    height: 14,
-                                                                    cursor: 'nwse-resize',
-                                                                    borderRadius: 2,
-                                                                    border: '1px solid #91caff',
-                                                                    background: 'linear-gradient(135deg, transparent 50%, #1677ff 50%)',
-                                                                    boxSizing: 'border-box',
-                                                                } })] }, c.id));
-                                                })) }) })),
+                                                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                            }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 14 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screen Layout" }), _jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [components.length, " components"] })] }), _jsx("div", { ref: canvasInnerRef, onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
+                                                        position: 'relative',
+                                                        minHeight: 460,
+                                                        width: '100%',
+                                                        marginTop: 8,
+                                                        border: '1px solid #e5e7eb',
+                                                        borderRadius: 8,
+                                                        backgroundColor: '#fbfcfe',
+                                                        backgroundSize: `${GRID}px ${GRID}px`,
+                                                        backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+                                                        overflow: 'visible',
+                                                    }, children: components.length === 0 ? (_jsx(Typography.Paragraph, { type: "secondary", style: { margin: 0 }, children: "Drop components here from the left toolbox." })) : ([...components]
+                                                        .slice()
+                                                        .sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1))
+                                                        .map((c) => {
+                                                        const L = effectiveLayout(c);
+                                                        return (_jsxs("div", { onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
+                                                                position: 'absolute',
+                                                                left: L.x,
+                                                                top: L.y,
+                                                                width: L.w,
+                                                                height: L.h,
+                                                                zIndex: c.zIndex ?? 1,
+                                                                boxSizing: 'border-box',
+                                                                padding: 8,
+                                                                border: '1px solid #cfd7e3',
+                                                                borderRadius: 8,
+                                                                background: '#fff',
+                                                                boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+                                                                cursor: 'grab',
+                                                                touchAction: 'none',
+                                                            }, onPointerDown: (e) => onItemPointerDown(e, c), onPointerMove: onItemPointerMove, onPointerUp: onItemPointerUp, onPointerCancel: onItemPointerUp, children: [_jsxs("div", { "data-bind-drag": true, title: `Drag ${c.type} to communication binding`, style: bindingChipStyle(c.type), children: [_jsx("span", { draggable: true, onDragStart: (e) => onDragStartComponentBinding(e, c), style: {
+                                                                                cursor: 'grab',
+                                                                                padding: '4px 8px',
+                                                                                borderRight: '1px solid rgba(0,0,0,0.12)',
+                                                                            }, children: c.type }), _jsx(Button, { type: "text", size: "small", icon: _jsx(EditOutlined, {}), "aria-label": "Edit component", "data-delete-btn": true, onPointerDown: (e) => e.stopPropagation(), onClick: () => setEditingComponentId(c.id), style: {
+                                                                                width: 24,
+                                                                                height: 24,
+                                                                                color: 'inherit',
+                                                                            } }), _jsx(Button, { type: "text", size: "small", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove component", "data-delete-btn": true, onPointerDown: (e) => e.stopPropagation(), onClick: () => removeById(c.id), style: {
+                                                                                width: 24,
+                                                                                height: 24,
+                                                                            } })] }), _jsx("div", { style: {
+                                                                        position: 'relative',
+                                                                        height: '100%',
+                                                                        width: '100%',
+                                                                    }, children: _jsx("div", { style: { width: '100%', height: '100%', minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c, columnNameDrafts: columnNameDrafts, onGridColumnDraftChange: updateGridColumnDraft, onGridColumnChange: updateGridColumn, onGridColumnDataTypeChange: updateGridColumnDataType, onGridAddColumn: addGridColumn, onGridRemoveColumn: removeGridColumn, onGridSaveRows: saveGridRowsToLinkedFormat, onButtonTextChange: updateButtonText, onGridCellChange: updateGridCell, onGridAddRow: addGridRow, onGridRemoveRow: removeGridRow }) }) }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
+                                                                        position: 'absolute',
+                                                                        right: 2,
+                                                                        bottom: 2,
+                                                                        width: 14,
+                                                                        height: 14,
+                                                                        cursor: 'nwse-resize',
+                                                                        borderRadius: 2,
+                                                                        border: '1px solid #91caff',
+                                                                        background: 'linear-gradient(135deg, transparent 50%, #1677ff 50%)',
+                                                                        boxSizing: 'border-box',
+                                                                    } })] }, c.id));
+                                                    })) })] })),
                                     },
                                     {
                                         key: 'json',
@@ -1347,22 +1699,19 @@ function App() {
                                                 maxHeight: 220,
                                                 overflow: 'auto',
                                                 fontSize: 12,
-                                                background: '#f5f5f5',
+                                                background: '#0f172a',
+                                                color: '#dbeafe',
                                                 padding: 12,
-                                                borderRadius: 6,
+                                                borderRadius: 8,
                                             }, children: serialized })),
                                     },
-                                ] })] }), _jsxs(Sider, { width: 360, theme: "light", style: {
-                            borderLeft: '1px solid #f0f0f0',
+                                ] })] }), _jsxs(Sider, { width: 400, theme: "light", style: {
+                            borderLeft: '1px solid #d9dee7',
+                            background: '#ffffff',
                             padding: 16,
                             overflow: 'auto',
-                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Communication" }), _jsxs(Space, { size: 6, children: [_jsx(Button, { size: "small", onClick: addCommunicationFormat, children: "Add format" }), _jsx(Button, { size: "small", onClick: addCommunication, children: "Add action" })] })] }), _jsx(Typography.Paragraph, { type: "secondary", style: { fontSize: 12, marginBottom: 12 }, children: "Drag a component ID chip from the canvas into a binding box." }), _jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsx(Collapse, { size: "small", items: [
-                                            {
-                                                key: 'formats',
-                                                label: `Formats (${communicationFormats.length})`,
-                                                children: (_jsx(Space, { direction: "vertical", size: 10, style: { width: '100%' }, children: communicationFormats.map((format) => (_jsx(Card, { size: "small", title: format.id, extra: _jsxs(Space, { size: 4, children: [_jsx(Button, { size: "small", type: "primary", onClick: () => saveCommunicationFormat(format), children: "Save" }), _jsx(Button, { size: "small", danger: true, onClick: () => deleteCommunicationFormat(format.id), children: "Delete" })] }), children: _jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Name", value: format.name, onChange: (e) => updateCommunicationFormat(format.id, { name: e.target.value }) }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Inputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(format.id, 'inputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: format.inputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(format.id, 'inputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: format.inputFields.length === 1, onClick: () => removeCommunicationFormatField(format.id, 'inputFields', index), children: "Delete" })] }, `format-input-${index}`))) })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Outputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(format.id, 'outputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: format.outputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(format.id, 'outputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: format.outputFields.length === 1, onClick: () => removeCommunicationFormatField(format.id, 'outputFields', index), children: "Delete" })] }, `format-output-${index}`))) })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Sample Output Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(format.sampleRows, null, 2), onBlur: (e) => updateCommunicationSampleRows(format.id, e.target.value), style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, `format-${format.id}-${JSON.stringify(format.sampleRows)}`)] })] }) }, format.id))) })),
-                                            },
-                                        ] }), communications.map((comm) => {
+                            height: 'calc(100vh - 56px)',
+                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Actions" }), _jsxs(Space, { size: 6, children: [_jsxs(Button, { size: "small", onClick: () => setFormatsModalOpen(true), children: ["Formats (", communicationFormats.length, ")"] }), _jsx(Button, { size: "small", onClick: addCommunication, children: "Add action" })] })] }), _jsx(Typography.Paragraph, { type: "secondary", style: { fontSize: 12, marginBottom: 12 }, children: "Drag a component ID chip from the canvas into a binding box." }), _jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [communications.map((comm) => {
                                         const selectedFormat = communicationFormats.find((format) => format.id === (comm.formatId || comm.id)) ??
                                             {
                                                 id: comm.formatId || comm.id,
@@ -1385,31 +1734,72 @@ function App() {
                                             display: 'flex',
                                             alignItems: 'center',
                                         };
-                                        return (_jsx(Card, { size: "small", title: comm.name || comm.id, extra: _jsxs(Space, { size: 4, children: [_jsx(Button, { size: "small", type: "primary", onClick: () => saveAction(comm.id), children: "Save" }), _jsx(Button, { danger: true, size: "small", type: "text", onClick: () => removeCommunication(comm.id), children: "Remove" })] }), children: _jsxs(Space, { direction: "vertical", size: 10, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "ID", value: comm.id, onChange: (e) => updateCommunication(comm.id, { id: e.target.value.trim() }) }), _jsx(Input, { addonBefore: "Name", value: comm.name, onChange: (e) => updateCommunication(comm.id, { name: e.target.value }) }), _jsx(Input, { addonBefore: "Format", list: "communication-format-ids", value: comm.formatId || comm.id, onChange: (e) => {
-                                                            const nextFormatId = e.target.value.trim();
-                                                            updateCommunication(comm.id, { formatId: nextFormatId });
-                                                            comm.outputBindings.forEach((binding) => {
-                                                                if (binding.componentId) {
-                                                                    applyFormatRowsToEmptyGrid(comm.id, binding.componentId, nextFormatId);
-                                                                }
-                                                            });
-                                                        } }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Trigger Button" }), _jsxs(Space.Compact, { style: { width: '100%', marginTop: 6 }, children: [_jsx("div", { onDragOver: acceptComponentBindingDrop, onDrop: (e) => {
+                                        return (_jsx(Card, { size: "small", title: comm.name || comm.id, style: { borderRadius: 8, borderColor: '#e5e7eb' }, extra: _jsxs(Space, { size: 4, children: [_jsx(Button, { size: "small", type: "primary", onClick: () => saveAction(comm.id), children: "Save" }), _jsx(Button, { danger: true, size: "small", type: "text", onClick: () => removeCommunication(comm.id), children: "Remove" })] }), children: _jsxs(Space, { direction: "vertical", size: 10, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "ID", value: comm.id, onChange: (e) => updateCommunication(comm.id, { id: e.target.value.trim() }) }), _jsx(Input, { addonBefore: "Name", value: comm.name, onChange: (e) => updateCommunication(comm.id, { name: e.target.value }) }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 6 }, children: [_jsx(Typography.Text, { strong: true, children: "Format" }), _jsx(Button, { size: "small", type: "link", onClick: () => setFormatsModalOpen(true), children: "Manage" })] }), _jsx(Select, { placeholder: "Select format", value: comm.formatId || undefined, options: [
+                                                                    ...communicationFormats.map((format) => ({
+                                                                        label: `${format.name || format.id} (${format.id})`,
+                                                                        value: format.id,
+                                                                    })),
+                                                                    ...(comm.formatId &&
+                                                                        !communicationFormats.some((format) => format.id === comm.formatId)
+                                                                        ? [{ label: `${comm.formatId} (missing)`, value: comm.formatId }]
+                                                                        : []),
+                                                                ], onChange: (value) => changeCommunicationFormat(comm, value), style: { width: '100%' } })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Trigger Button" }), _jsxs(Space.Compact, { style: { width: '100%', marginTop: 6 }, children: [_jsx("div", { onDragOver: acceptComponentBindingDrop, onDrop: (e) => {
                                                                             const dropped = readDroppedComponent(e, ['Button']);
                                                                             if (dropped)
                                                                                 bindTriggerComponent(comm.id, dropped.id);
                                                                         }, style: { ...dropStyle, flex: 1 }, children: comm.triggerComponentId || 'Drop Button here' }), _jsx(Button, { disabled: !comm.triggerComponentId, onClick: () => clearTriggerComponent(comm.id), style: { height: 32 }, children: "Clear" })] })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Inputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationInput(comm.id), children: "Add input" })] }), _jsx(Space, { direction: "vertical", size: 8, style: { width: '100%', marginTop: 6 }, children: inputBindings.map((inputBinding, index) => (_jsxs("div", { children: [_jsxs(Space.Compact, { style: { width: '100%', marginBottom: 6 }, children: [_jsx(Input, { addonBefore: "field", value: inputBinding.field, onChange: (e) => updateCommunicationInput(comm.id, index, {
                                                                                         field: e.target.value,
                                                                                     }) }), _jsx(Button, { danger: true, disabled: inputBindings.length === 1, onClick: () => removeCommunicationInput(comm.id, index), children: "Remove" })] }), _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx("div", { onDragOver: acceptComponentBindingDrop, onDrop: (e) => {
-                                                                                        const dropped = readDroppedComponent(e, ['Input']);
+                                                                                        const dropped = readDroppedComponent(e, [
+                                                                                            'Input',
+                                                                                            'Select',
+                                                                                            'Checkbox',
+                                                                                            'DatePicker',
+                                                                                        ]);
                                                                                         if (dropped)
                                                                                             bindInputComponent(comm.id, index, dropped.id);
-                                                                                    }, style: { ...dropStyle, flex: 1 }, children: inputBinding.componentId || 'Drop Input here' }), _jsx(Button, { disabled: !inputBinding.componentId, onClick: () => clearInputComponent(comm.id, index), style: { height: 32 }, children: "Unlink" })] })] }, `input-${index}`))) })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Outputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationOutput(comm.id), children: "Add output" })] }), _jsx(Space, { direction: "vertical", size: 8, style: { width: '100%', marginTop: 6 }, children: outputBindings.map((outputBinding, index) => (_jsxs("div", { children: [_jsxs(Space.Compact, { style: { width: '100%', marginBottom: 6 }, children: [_jsx(Input, { addonBefore: "field", value: outputBinding.field, onChange: (e) => updateCommunicationOutput(comm.id, index, {
+                                                                                    }, style: { ...dropStyle, flex: 1 }, children: inputBinding.componentId || 'Drop input component here' }), _jsx(Button, { disabled: !inputBinding.componentId, onClick: () => clearInputComponent(comm.id, index), style: { height: 32 }, children: "Unlink" })] })] }, `input-${index}`))) })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Outputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationOutput(comm.id), children: "Add output" })] }), _jsx(Space, { direction: "vertical", size: 8, style: { width: '100%', marginTop: 6 }, children: outputBindings.map((outputBinding, index) => (_jsxs("div", { children: [_jsxs(Space.Compact, { style: { width: '100%', marginBottom: 6 }, children: [_jsx(Input, { addonBefore: "field", value: outputBinding.field, onChange: (e) => updateCommunicationOutput(comm.id, index, {
                                                                                         field: e.target.value,
                                                                                     }) }), _jsx(Button, { danger: true, disabled: outputBindings.length === 1, onClick: () => removeCommunicationOutput(comm.id, index), children: "Remove" })] }), _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx("div", { onDragOver: acceptComponentBindingDrop, onDrop: (e) => {
                                                                                         const dropped = readDroppedComponent(e, ['AgGrid']);
                                                                                         if (dropped)
                                                                                             bindOutputComponent(comm.id, index, dropped.id);
                                                                                     }, style: { ...dropStyle, flex: 1 }, children: outputBinding.componentId || 'Drop AgGrid here' }), _jsx(Button, { disabled: !outputBinding.componentId, onClick: () => clearOutputComponent(comm.id, index), style: { height: 32 }, children: "Unlink" })] })] }, `output-${index}`))) })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Sample Output Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(selectedFormat.sampleRows, null, 2), onBlur: (e) => updateCommunicationSampleRows(selectedFormat.id, e.target.value), style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, `${comm.id}-${selectedFormat.id}-${JSON.stringify(selectedFormat.sampleRows)}`)] })] }) }, comm.id));
-                                    }), _jsx("datalist", { id: "communication-format-ids", children: communicationFormats.map((format) => (_jsx("option", { value: format.id }, format.id))) })] })] })] })] }));
+                                    }), _jsx(Modal, { open: !!editingComponent, title: editingComponent ? `${editingComponent.type} Component` : 'Component', width: 720, footer: null, destroyOnClose: true, onCancel: () => setEditingComponentId(null), children: editingComponent && (_jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "ID", defaultValue: editingComponent.id, onBlur: (e) => updateComponentId(editingComponent.id, e.target.value), onPressEnter: (e) => e.currentTarget.blur() }, editingComponent.id), editingComponent.type === 'Text' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'Input' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Select' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, {
+                                                                placeholder: e.target.value,
+                                                            }) }), _jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Options" }), _jsx(Button, { size: "small", onClick: () => addSelectOption(editingComponent.id), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%' }, children: getSelectOptions(editingComponent).map((option, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "label", value: option.label, onChange: (e) => updateSelectOption(editingComponent.id, index, {
+                                                                            label: e.target.value,
+                                                                        }) }), _jsx(Input, { addonBefore: "value", value: option.value, onChange: (e) => updateSelectOption(editingComponent.id, index, {
+                                                                            value: e.target.value,
+                                                                        }) }), _jsx(Button, { danger: true, disabled: getSelectOptions(editingComponent).length === 1, onClick: () => removeSelectOption(editingComponent.id, index), children: "Delete" })] }, `${option.value}-${index}`))) })] })), editingComponent.type === 'Checkbox' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Label", value: editingComponent.props?.label ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { label: e.target.value }) }), _jsx(Checkbox, { checked: Boolean(editingComponent.props?.checked), onChange: (e) => updateComponentProps(editingComponent.id, {
+                                                                checked: e.target.checked,
+                                                            }), children: "Checked" })] })), editingComponent.type === 'DatePicker' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Button' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'AgGrid' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Typography.Text, { strong: true, children: "Column Definitions JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(editingComponent.props?.columnDefs ?? [], null, 2), onBlur: (e) => {
+                                                                try {
+                                                                    const parsed = JSON.parse(e.target.value);
+                                                                    if (!Array.isArray(parsed)) {
+                                                                        message.error('Column definitions must be a JSON array.');
+                                                                        return;
+                                                                    }
+                                                                    updateComponentProps(editingComponent.id, { columnDefs: parsed });
+                                                                }
+                                                                catch {
+                                                                    message.error('Invalid column definitions JSON.');
+                                                                }
+                                                            }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`), _jsx(Typography.Text, { strong: true, children: "Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(editingComponent.props?.rowData ?? [], null, 2), onBlur: (e) => {
+                                                                try {
+                                                                    const parsed = JSON.parse(e.target.value);
+                                                                    if (!Array.isArray(parsed)) {
+                                                                        message.error('Rows must be a JSON array.');
+                                                                        return;
+                                                                    }
+                                                                    updateComponentProps(editingComponent.id, { rowData: parsed });
+                                                                }
+                                                                catch {
+                                                                    message.error('Invalid rows JSON.');
+                                                                }
+                                                            }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`)] }))] })) }), _jsx(Modal, { open: formatsModalOpen, title: "Communication Formats", width: 920, footer: null, destroyOnClose: true, onCancel: () => setFormatsModalOpen(false), children: _jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, align: "center", children: [_jsx(Select, { placeholder: "Select format", value: selectedFormat?.id, options: communicationFormats.map((format) => ({
+                                                                label: `${format.name || format.id} (${format.id})`,
+                                                                value: format.id,
+                                                            })), onChange: setSelectedFormatId, style: { flex: 1, minWidth: 280 } }), _jsx(Button, { type: "primary", onClick: addCommunicationFormat, children: "Add format" })] }), selectedFormat ? (_jsx("div", { style: { maxHeight: 640, overflow: 'auto' }, children: _jsx(Card, { size: "small", title: selectedFormat.id, extra: _jsxs(Space, { size: 4, children: [_jsx(Button, { size: "small", type: "primary", onClick: () => saveCommunicationFormat(selectedFormat), children: "Save" }), _jsx(Button, { size: "small", danger: true, onClick: () => deleteCommunicationFormat(selectedFormat.id), children: "Delete" })] }), children: _jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Name", value: selectedFormat.name, onChange: (e) => updateCommunicationFormat(selectedFormat.id, { name: e.target.value }) }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Inputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(selectedFormat.id, 'inputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: selectedFormat.inputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(selectedFormat.id, 'inputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: selectedFormat.inputFields.length === 1, onClick: () => removeCommunicationFormatField(selectedFormat.id, 'inputFields', index), children: "Delete" })] }, `format-input-${index}`))) })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Outputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(selectedFormat.id, 'outputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: selectedFormat.outputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(selectedFormat.id, 'outputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: selectedFormat.outputFields.length === 1, onClick: () => removeCommunicationFormatField(selectedFormat.id, 'outputFields', index), children: "Delete" })] }, `format-output-${index}`))) })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Sample Output Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(selectedFormat.sampleRows, null, 2), onBlur: (e) => updateCommunicationSampleRows(selectedFormat.id, e.target.value), style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, `format-${selectedFormat.id}-${JSON.stringify(selectedFormat.sampleRows)}`)] })] }) }, selectedFormat.id) })) : (_jsx(Typography.Text, { type: "secondary", children: "No formats. Add one to start." }))] }) }), _jsx("datalist", { id: "communication-format-ids", children: communicationFormats.map((format) => (_jsx("option", { value: format.id }, format.id))) })] })] })] })] }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(_jsx(App, {}));

@@ -1,7 +1,20 @@
 import React, { useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { AgGridReact } from 'ag-grid-react';
-import { Button, Form, Input, Layout, Modal, Space, Tree, Typography, message } from 'antd';
+import {
+  Button,
+  Checkbox,
+  DatePicker,
+  Form,
+  Input,
+  Layout,
+  Modal,
+  Select,
+  Space,
+  Tree,
+  Typography,
+  message,
+} from 'antd';
 import axios from 'axios';
 import 'antd/dist/reset.css';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -18,11 +31,13 @@ type MenuItem = {
   openMode?: 'inline' | 'popup';
 };
 
+type GridDataType = 'string' | 'number' | 'boolean' | 'date';
+
 type ScreenState = {
   menu: MenuItem;
   components: ScreenComponent[];
   communications: CommunicationDefinition[];
-  inputValues: Record<string, string>;
+  inputValues: Record<string, string | boolean>;
   gridRows: Record<string, Array<Record<string, unknown>>>;
 };
 
@@ -46,7 +61,7 @@ type CommunicationFormat = {
 
 type ScreenComponent = {
   id: string;
-  type: 'Input' | 'Button' | 'AgGrid';
+  type: 'Text' | 'Input' | 'Select' | 'Checkbox' | 'DatePicker' | 'Button' | 'AgGrid';
   layout?: { x: number; y: number; width?: number; height?: number };
   zIndex?: number;
   props?: any;
@@ -54,8 +69,16 @@ type ScreenComponent = {
 
 function defaultSize(type: ScreenComponent['type']): { w: number; h: number } {
   switch (type) {
+    case 'Text':
+      return { w: 200, h: 32 };
     case 'Input':
       return { w: 256, h: 40 };
+    case 'Select':
+      return { w: 220, h: 40 };
+    case 'Checkbox':
+      return { w: 160, h: 32 };
+    case 'DatePicker':
+      return { w: 180, h: 40 };
     case 'Button':
       return { w: 160, h: 40 };
     case 'AgGrid':
@@ -79,14 +102,45 @@ function getStackPosition(index: number) {
   return { x: 12, y: 12 + index * 80 };
 }
 
+function getSelectOptions(props: any) {
+  const raw = Array.isArray(props?.options) ? props.options : [];
+  return raw
+    .filter((option: any) => typeof option === 'object' && option !== null)
+    .map((option: any) => ({
+      label: String(option.label ?? option.value ?? ''),
+      value: String(option.value ?? option.label ?? ''),
+    }))
+    .filter((option: { value: string }) => option.value);
+}
+
 function getGridColumnDefs(props: any) {
   const columnDefs = Array.isArray(props?.columnDefs) ? props.columnDefs : [];
-  return columnDefs.map((columnDef: any) => ({
-    flex: columnDef.flex ?? 1,
-    minWidth: columnDef.minWidth ?? 80,
-    ...columnDef,
-    cellDataType: false,
-  }));
+  return columnDefs.map((columnDef: any) => {
+    const dataType = getGridDataType(columnDef.dataType);
+    return {
+      flex: columnDef.flex ?? 1,
+      minWidth: columnDef.minWidth ?? 80,
+      ...columnDef,
+      cellDataType: toAgGridCellDataType(dataType),
+      filter: toAgGridFilter(dataType),
+    };
+  });
+}
+
+function getGridDataType(value: unknown): GridDataType {
+  return value === 'number' || value === 'boolean' || value === 'date' ? value : 'string';
+}
+
+function toAgGridCellDataType(dataType: GridDataType) {
+  if (dataType === 'string') return 'text';
+  if (dataType === 'date') return 'dateString';
+  return dataType;
+}
+
+function toAgGridFilter(dataType: GridDataType) {
+  if (dataType === 'number') return 'agNumberColumnFilter';
+  if (dataType === 'date') return 'agDateColumnFilter';
+  return 'agTextColumnFilter';
 }
 
 function menuTargetType(menu: MenuItem): 'folder' | 'screen' {
@@ -132,9 +186,9 @@ function DynamicRenderer({
   onAction,
 }: {
   components: ScreenComponent[];
-  inputValues: Record<string, string>;
+  inputValues: Record<string, string | boolean>;
   gridRows: Record<string, Array<Record<string, unknown>>>;
-  onInputChange: (componentId: string, value: string) => void;
+  onInputChange: (componentId: string, value: string | boolean) => void;
   onAction: (componentId: string) => void;
 }) {
   const placed = components.map((c, index) => {
@@ -162,14 +216,73 @@ function DynamicRenderer({
           boxSizing: 'border-box' as const,
         };
 
+        if (c.type === 'Text') {
+          return (
+            <div key={c.id} style={common}>
+              <Typography.Text
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: '100%',
+                  height: '100%',
+                  fontWeight: 600,
+                }}
+              >
+                {c.props?.text ?? 'Label'}
+              </Typography.Text>
+            </div>
+          );
+        }
+
         if (c.type === 'Input') {
           return (
             <div key={c.id} style={common}>
               <Input
                 placeholder={c.props?.placeholder}
-                value={inputValues[c.id] ?? ''}
+                value={String(inputValues[c.id] ?? '')}
                 onChange={(e) => onInputChange(c.id, e.target.value)}
                 style={{ width: '100%', height: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+          );
+        }
+
+        if (c.type === 'Select') {
+          return (
+            <div key={c.id} style={common}>
+              <Select
+                placeholder={c.props?.placeholder}
+                options={getSelectOptions(c.props)}
+                value={(inputValues[c.id] as string | undefined) || undefined}
+                onChange={(value) => onInputChange(c.id, value)}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+          );
+        }
+
+        if (c.type === 'Checkbox') {
+          return (
+            <div key={c.id} style={common}>
+              <Checkbox
+                checked={Boolean(inputValues[c.id] ?? c.props?.checked)}
+                onChange={(e) => onInputChange(c.id, e.target.checked)}
+              >
+                {c.props?.label ?? 'Checkbox'}
+              </Checkbox>
+            </div>
+          );
+        }
+
+        if (c.type === 'DatePicker') {
+          return (
+            <div key={c.id} style={common}>
+              <DatePicker
+                placeholder={c.props?.placeholder}
+                onChange={(_, dateString) =>
+                  onInputChange(c.id, Array.isArray(dateString) ? dateString[0] ?? '' : dateString)
+                }
+                style={{ width: '100%', height: '100%' }}
               />
             </div>
           );
@@ -219,7 +332,7 @@ function App() {
   const [components, setComponents] = useState<ScreenComponent[]>([]);
   const [communications, setCommunications] = useState<CommunicationDefinition[]>([]);
   const [communicationFormats, setCommunicationFormats] = useState<CommunicationFormat[]>([]);
-  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
   const [gridRows, setGridRows] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [activeMenu, setActiveMenu] = useState<MenuItem | null>(null);
   const [popupScreen, setPopupScreen] = useState<ScreenState | null>(null);
@@ -238,7 +351,9 @@ function App() {
 
   const onLogin = async (values: { username: string; password: string }) => {
     const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
-    setToken(loginRes.data.token);
+    const nextToken = loginRes.data.token;
+    axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
+    setToken(nextToken);
     await Promise.all([loadMenus(), loadCommunicationFormats()]);
   };
 

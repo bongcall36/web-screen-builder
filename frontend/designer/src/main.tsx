@@ -3,32 +3,57 @@ import ReactDOM from 'react-dom/client';
 import {
   Button,
   Card,
+  Checkbox,
   Collapse,
+  DatePicker,
   Form,
   Input,
   Layout,
   List,
+  Modal,
   Select,
   Space,
   Tabs,
+  Tooltip,
   Tree,
   Typography,
   message,
 } from 'antd';
-import { DeleteOutlined, HolderOutlined } from '@ant-design/icons';
+import {
+  CalendarOutlined,
+  CheckSquareOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  FontSizeOutlined,
+  FormOutlined,
+  OneToOneOutlined,
+  TableOutlined,
+  UnorderedListOutlined,
+} from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import axios from 'axios';
 
 
 const { Header, Content, Sider } = Layout;
 
-type ScreenComponentType = 'Input' | 'Button' | 'AgGrid';
+const SCREEN_COMPONENT_TYPES = [
+  'Text',
+  'Input',
+  'Select',
+  'Checkbox',
+  'DatePicker',
+  'Button',
+  'AgGrid',
+] as const;
+
+type ScreenComponentType = (typeof SCREEN_COMPONENT_TYPES)[number];
+type GridDataType = 'string' | 'number' | 'boolean' | 'date';
 
 /** Pixel grid for move + resize snap */
 const GRID = 8;
 
 type ComponentLayout = { x: number; y: number; width?: number; height?: number };
-type GridColumnDef = { field?: string };
+type GridColumnDef = { field?: string; dataType?: GridDataType };
 type GridRow = Record<string, string | number | boolean | null>;
 type CommunicationDefinition = {
   id: string;
@@ -48,14 +73,29 @@ type CommunicationFormat = {
   sampleRows: GridRow[];
 };
 
+const GRID_DATA_TYPE_OPTIONS: Array<{ value: GridDataType; label: string }> = [
+  { value: 'string', label: 'String' },
+  { value: 'number', label: 'Number' },
+  { value: 'boolean', label: 'Boolean' },
+  { value: 'date', label: 'Date' },
+];
+
 function snap(n: number) {
   return Math.round(n / GRID) * GRID;
 }
 
 function defaultSize(type: ScreenComponentType): { w: number; h: number } {
   switch (type) {
+    case 'Text':
+      return { w: 200, h: 32 };
     case 'Input':
       return { w: 256, h: 40 };
+    case 'Select':
+      return { w: 220, h: 40 };
+    case 'Checkbox':
+      return { w: 160, h: 32 };
+    case 'DatePicker':
+      return { w: 180, h: 40 };
     case 'Button':
       return { w: 160, h: 40 };
     case 'AgGrid':
@@ -67,8 +107,16 @@ function defaultSize(type: ScreenComponentType): { w: number; h: number } {
 
 function minSize(type: ScreenComponentType): { w: number; h: number } {
   switch (type) {
+    case 'Text':
+      return { w: 80, h: 24 };
     case 'Input':
       return { w: 120, h: 32 };
+    case 'Select':
+      return { w: 120, h: 32 };
+    case 'Checkbox':
+      return { w: 120, h: 24 };
+    case 'DatePicker':
+      return { w: 140, h: 32 };
     case 'Button':
       return { w: 120, h: 32 };
     case 'AgGrid':
@@ -128,7 +176,10 @@ const DEFAULT_COMPONENTS: ScreenComponent[] = [
     type: 'AgGrid',
     layout: { x: 16, y: 72, width: 400, height: 200 },
     props: {
-      columnDefs: [{ field: 'id' }, { field: 'name' }],
+      columnDefs: [
+        { field: 'id', dataType: 'number' },
+        { field: 'name', dataType: 'string' },
+      ],
       rowData: [
         { id: 1, name: 'Alice' },
         { id: 2, name: 'Bob' },
@@ -167,8 +218,22 @@ const COMPONENT_BIND_MIME = 'application/x-wsb-bind-component';
 
 function defaultPropsFor(type: ScreenComponentType): Record<string, unknown> {
   switch (type) {
+    case 'Text':
+      return { text: 'Label' };
     case 'Input':
       return { placeholder: 'Placeholder' };
+    case 'Select':
+      return {
+        placeholder: 'Select',
+        options: [
+          { label: 'Option 1', value: 'option1' },
+          { label: 'Option 2', value: 'option2' },
+        ],
+      };
+    case 'Checkbox':
+      return { label: 'Checkbox', checked: false };
+    case 'DatePicker':
+      return { placeholder: 'Select date' };
     case 'Button':
       return { text: 'Button' };
     case 'AgGrid':
@@ -205,6 +270,26 @@ function getComponentOptions(components: ScreenComponent[], type: ScreenComponen
   return components.filter((component) => component.type === type);
 }
 
+function isInputLikeComponent(type: ScreenComponentType) {
+  return type === 'Input' || type === 'Select' || type === 'Checkbox' || type === 'DatePicker';
+}
+
+function isScreenComponentType(value: string): value is ScreenComponentType {
+  return SCREEN_COMPONENT_TYPES.includes(value as ScreenComponentType);
+}
+
+function getSelectOptions(item: ScreenComponent) {
+  const raw = item.props?.options;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((option) => typeof option === 'object' && option !== null)
+    .map((option: any) => ({
+      label: String(option.label ?? option.value ?? ''),
+      value: String(option.value ?? option.label ?? ''),
+    }))
+    .filter((option) => option.value);
+}
+
 function sanitizeCommunicationsForComponents(
   communications: CommunicationDefinition[],
   components: ScreenComponent[],
@@ -218,7 +303,10 @@ function sanitizeCommunicationsForComponents(
     inputBindings: comm.inputBindings.map((binding) => ({
       ...binding,
       componentId:
-        componentsById.get(binding.componentId)?.type === 'Input' ? binding.componentId : '',
+        componentsById.has(binding.componentId) &&
+        isInputLikeComponent(componentsById.get(binding.componentId)!.type)
+          ? binding.componentId
+          : '',
     })),
     outputBindings: comm.outputBindings.map((binding) => ({
       ...binding,
@@ -238,7 +326,11 @@ function stripScreenCommunication(comm: CommunicationDefinition): CommunicationD
 
 function bindingChipStyle(type: ScreenComponentType): React.CSSProperties {
   const colors = {
+    Text: { bg: '#f5f5f5', border: '#d9d9d9', text: '#434343' },
     Input: { bg: '#e6f4ff', border: '#91caff', text: '#0958d9' },
+    Select: { bg: '#e6fffb', border: '#87e8de', text: '#006d75' },
+    Checkbox: { bg: '#f9f0ff', border: '#d3adf7', text: '#531dab' },
+    DatePicker: { bg: '#fff1f0', border: '#ffa39e', text: '#a8071a' },
     Button: { bg: '#fff7e6', border: '#ffd591', text: '#ad4e00' },
     AgGrid: { bg: '#f6ffed', border: '#b7eb8f', text: '#237804' },
   }[type];
@@ -268,6 +360,32 @@ function getVisibleGridColumns(item: ScreenComponent): GridColumnDef[] {
   return getGridColumns(item).filter((col) => typeof col.field === 'string' && col.field);
 }
 
+function getColumnDataType(column: GridColumnDef): GridDataType {
+  return GRID_DATA_TYPE_OPTIONS.some((option) => option.value === column.dataType)
+    ? column.dataType!
+    : 'string';
+}
+
+function inferDataType(values: Array<string | number | boolean | null>): GridDataType {
+  const present = values.filter((value) => value !== null && value !== '');
+  if (present.length === 0) return 'string';
+  if (present.every((value) => typeof value === 'boolean')) return 'boolean';
+  if (present.every((value) => typeof value === 'number')) return 'number';
+  return 'string';
+}
+
+function coerceGridValue(value: string, dataType: GridDataType): string | number | boolean | null {
+  if (value.trim() === '') return '';
+  if (dataType === 'number') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : value;
+  }
+  if (dataType === 'boolean') {
+    return value.toLowerCase() === 'true';
+  }
+  return value;
+}
+
 function nextGridField(columns: GridColumnDef[]) {
   const fields = new Set(columns.map((col) => col.field).filter(Boolean));
   let index = fields.size + 1;
@@ -284,7 +402,10 @@ function columnsFromRows(rows: GridRow[]): GridColumnDef[] {
   rows.forEach((row) => {
     Object.keys(row).forEach((field) => fields.add(field));
   });
-  return Array.from(fields).map((field) => ({ field }));
+  return Array.from(fields).map((field) => ({
+    field,
+    dataType: inferDataType(rows.map((row) => row[field])),
+  }));
 }
 
 function columnDraftKey(componentId: string, field: string) {
@@ -315,6 +436,7 @@ function CanvasPreview({
   columnNameDrafts,
   onGridColumnDraftChange,
   onGridColumnChange,
+  onGridColumnDataTypeChange,
   onGridAddColumn,
   onGridRemoveColumn,
   onGridSaveRows,
@@ -327,6 +449,11 @@ function CanvasPreview({
   columnNameDrafts: Record<string, string>;
   onGridColumnDraftChange: (componentId: string, field: string, value: string) => void;
   onGridColumnChange: (componentId: string, oldField: string) => void;
+  onGridColumnDataTypeChange: (
+    componentId: string,
+    field: string,
+    dataType: GridDataType,
+  ) => void;
   onGridAddColumn: (componentId: string) => void;
   onGridRemoveColumn: (componentId: string, field: string) => void;
   onGridSaveRows: (componentId: string) => void;
@@ -335,6 +462,21 @@ function CanvasPreview({
   onGridAddRow: (componentId: string) => void;
   onGridRemoveRow: (componentId: string, rowIndex: number) => void;
 }) {
+  if (item.type === 'Text') {
+    return (
+      <Typography.Text
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          width: '100%',
+          height: '100%',
+          fontWeight: 600,
+        }}
+      >
+        {(item.props?.text as string) ?? 'Label'}
+      </Typography.Text>
+    );
+  }
   if (item.type === 'Input') {
     return (
       <Input
@@ -344,23 +486,37 @@ function CanvasPreview({
       />
     );
   }
+  if (item.type === 'Select') {
+    return (
+      <Select
+        disabled
+        placeholder={(item.props?.placeholder as string) ?? 'Select'}
+        options={getSelectOptions(item)}
+        style={{ width: '100%', height: '100%' }}
+      />
+    );
+  }
+  if (item.type === 'Checkbox') {
+    return (
+      <Checkbox checked={Boolean(item.props?.checked)} disabled>
+        {(item.props?.label as string) ?? 'Checkbox'}
+      </Checkbox>
+    );
+  }
+  if (item.type === 'DatePicker') {
+    return (
+      <DatePicker
+        disabled
+        placeholder={(item.props?.placeholder as string) ?? 'Select date'}
+        style={{ width: '100%', height: '100%' }}
+      />
+    );
+  }
   if (item.type === 'Button') {
     return (
-      <Input
-        value={(item.props?.text as string) ?? 'Button'}
-        onPointerDown={(e) => e.stopPropagation()}
-        onChange={(e) => onButtonTextChange(item.id, e.target.value)}
-        style={{
-          width: '100%',
-          height: '100%',
-          boxSizing: 'border-box',
-          textAlign: 'center',
-          color: '#fff',
-          background: '#1677ff',
-          borderColor: '#1677ff',
-          fontWeight: 600,
-        }}
-      />
+      <Button type="primary" disabled style={{ width: '100%', height: '100%' }}>
+        {(item.props?.text as string) ?? 'Button'}
+      </Button>
     );
   }
   if (item.type === 'AgGrid') {
@@ -430,6 +586,17 @@ function CanvasPreview({
                       onBlur={() => onGridColumnChange(item.id, col.field ?? '')}
                       onPressEnter={(e) => e.currentTarget.blur()}
                     />
+                    <div onPointerDown={(e) => e.stopPropagation()}>
+                      <Select
+                        size="small"
+                        value={getColumnDataType(col)}
+                        options={GRID_DATA_TYPE_OPTIONS}
+                        onChange={(value) =>
+                          onGridColumnDataTypeChange(item.id, col.field ?? '', value)
+                        }
+                        style={{ width: 96 }}
+                      />
+                    </div>
                     <Button
                       size="small"
                       type="text"
@@ -485,10 +652,24 @@ function CanvasPreview({
 }
 
 const TOOLBOX: { type: ScreenComponentType; title: string; description: string }[] = [
+  { type: 'Text', title: 'Text', description: 'Static label' },
   { type: 'Input', title: 'Input', description: 'Text field' },
+  { type: 'Select', title: 'Select', description: 'Option picker' },
+  { type: 'Checkbox', title: 'Checkbox', description: 'True/false input' },
+  { type: 'DatePicker', title: 'DatePicker', description: 'Date input' },
   { type: 'Button', title: 'Button', description: 'Primary action' },
   { type: 'AgGrid', title: 'AgGrid', description: 'Data table' },
 ];
+
+const TOOLBOX_ICONS: Record<ScreenComponentType, React.ReactNode> = {
+  Text: <FontSizeOutlined />,
+  Input: <FormOutlined />,
+  Select: <UnorderedListOutlined />,
+  Checkbox: <CheckSquareOutlined />,
+  DatePicker: <CalendarOutlined />,
+  Button: <OneToOneOutlined />,
+  AgGrid: <TableOutlined />,
+};
 
 function menuTargetType(menu: MenuSummary): 'folder' | 'screen' {
   return menu.targetType === 'folder' ? 'folder' : 'screen';
@@ -534,6 +715,7 @@ function toActiveKeys(keys: string | string[]) {
 
 function App() {
   const [form] = Form.useForm();
+  const [token, setToken] = useState<string>('');
   const watchedScreenId = Form.useWatch('screenId', form) ?? 'sample-screen';
   const watchedScreenName = Form.useWatch('name', form) ?? 'Sample Screen';
   const watchedMenuId = Form.useWatch('menuId', form) ?? 'm1';
@@ -553,6 +735,11 @@ function App() {
   const [columnNameDrafts, setColumnNameDrafts] = useState<Record<string, string>>({});
   const [openSettings, setOpenSettings] = useState<string[]>([]);
   const [editingMenuId, setEditingMenuId] = useState('m1');
+  const [formatsModalOpen, setFormatsModalOpen] = useState(false);
+  const [selectedFormatId, setSelectedFormatId] = useState(
+    DEFAULT_COMMUNICATION_FORMATS[0]?.id ?? '',
+  );
+  const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
 
   const canvasInnerRef = useRef<HTMLDivElement>(null);
   const dragInfoRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -569,6 +756,10 @@ function App() {
     [components, communications],
   );
   const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
+  const selectedFormat =
+    communicationFormats.find((format) => format.id === selectedFormatId) ??
+    communicationFormats[0];
+  const editingComponent = components.find((component) => component.id === editingComponentId);
 
   const syncJsonDraftFromComponents = useCallback(() => {
     setJsonDraft(JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2));
@@ -583,13 +774,21 @@ function App() {
     setScreens(screenRes.data);
     setMenus(menuRes.data);
     setCommunicationFormats(formatRes.data);
+    setSelectedFormatId((prev) =>
+      formatRes.data.some((format: CommunicationFormat) => format.id === prev)
+        ? prev
+        : formatRes.data[0]?.id ?? '',
+    );
   }, []);
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
     loadDesignerMetadata().catch(() => {
       message.warning('Could not load screen and menu list.');
     });
-  }, [loadDesignerMetadata]);
+  }, [loadDesignerMetadata, token]);
 
   useEffect(() => {
     setCommunications((prev) => {
@@ -725,8 +924,8 @@ function App() {
     e.stopPropagation();
     const inner = canvasInnerRef.current;
     if (!inner) return;
-    const raw = e.dataTransfer.getData(COMPONENT_DRAG_MIME) as ScreenComponentType | '';
-    if (raw !== 'Input' && raw !== 'Button' && raw !== 'AgGrid') return;
+    const raw = e.dataTransfer.getData(COMPONENT_DRAG_MIME);
+    if (!isScreenComponentType(raw)) return;
     const rect = inner.getBoundingClientRect();
     const ds = defaultSize(raw);
     const x = snap(clamp(e.clientX - rect.left - 4, 0, Math.max(0, rect.width - ds.w)));
@@ -749,6 +948,7 @@ function App() {
 
   const removeById = (id: string) => {
     setComponents((prev) => prev.filter((c) => c.id !== id));
+    setEditingComponentId((current) => (current === id ? null : current));
     setCommunications((prev) =>
       prev.map((comm) => ({
         ...comm,
@@ -756,6 +956,22 @@ function App() {
         outputBindings: comm.outputBindings.filter((binding) => binding.componentId !== id),
         triggerComponentId: comm.triggerComponentId === id ? '' : comm.triggerComponentId,
       })),
+    );
+  };
+
+  const updateComponentProps = (componentId: string, patch: Record<string, unknown>) => {
+    setComponents((prev) =>
+      prev.map((component) =>
+        component.id === componentId
+          ? {
+              ...component,
+              props: {
+                ...component.props,
+                ...patch,
+              },
+            }
+          : component,
+      ),
     );
   };
 
@@ -787,6 +1003,7 @@ function App() {
         })),
       })),
     );
+    setEditingComponentId((current) => (current === oldId ? nextId : current));
     message.success(`Component ID changed to ${nextId}`);
   };
 
@@ -841,6 +1058,47 @@ function App() {
           : comm,
       ),
     );
+  };
+
+  const alignBindingsToFields = (
+    fields: string[],
+    bindings: Array<{ field: string; componentId: string }>,
+    fallbackField: string,
+  ) => {
+    const nextFields = fields.length > 0 ? fields : [fallbackField];
+    return nextFields.map((field, index) => ({
+      field,
+      componentId:
+        bindings.find((binding) => binding.field === field)?.componentId ??
+        bindings[index]?.componentId ??
+        '',
+    }));
+  };
+
+  const changeCommunicationFormat = (comm: CommunicationDefinition, nextFormatId: string) => {
+    const format = communicationFormats.find((item) => item.id === nextFormatId);
+    const nextInputBindings = alignBindingsToFields(
+      format?.inputFields ?? [],
+      comm.inputBindings,
+      'keyword',
+    );
+    const nextOutputBindings = alignBindingsToFields(
+      format?.outputFields ?? [],
+      comm.outputBindings,
+      'rows',
+    );
+
+    updateCommunication(comm.id, {
+      formatId: nextFormatId,
+      inputBindings: nextInputBindings,
+      outputBindings: nextOutputBindings,
+    });
+
+    nextOutputBindings.forEach((binding) => {
+      if (binding.componentId) {
+        applyFormatRowsToEmptyGrid(comm.id, binding.componentId, nextFormatId);
+      }
+    });
   };
 
   const addCommunicationInput = (actionId: string) => {
@@ -1010,6 +1268,7 @@ function App() {
         sampleRows: [],
       },
     ]);
+    setSelectedFormatId(id);
     message.success(`Added ${id}`);
   };
 
@@ -1025,7 +1284,13 @@ function App() {
   const deleteCommunicationFormat = async (formatId: string) => {
     try {
       await axios.delete(`http://localhost:8080/api/communications/formats/${formatId}`);
-      setCommunicationFormats((prev) => prev.filter((format) => format.id !== formatId));
+      setCommunicationFormats((prev) => {
+        const next = prev.filter((format) => format.id !== formatId);
+        setSelectedFormatId((current) =>
+          current === formatId ? next[0]?.id ?? '' : current,
+        );
+        return next;
+      });
       setCommunications((prev) =>
         prev.map((comm) => (comm.formatId === formatId ? { ...comm, formatId: '' } : comm)),
       );
@@ -1052,6 +1317,67 @@ function App() {
             }
           : component,
       ),
+    );
+  };
+
+  const updateSelectOption = (
+    componentId: string,
+    index: number,
+    patch: Partial<{ label: string; value: string }>,
+  ) => {
+    setComponents((prev) =>
+      prev.map((component) =>
+        component.id === componentId && component.type === 'Select'
+          ? {
+              ...component,
+              props: {
+                ...component.props,
+                options: getSelectOptions(component).map((option, optionIndex) =>
+                  optionIndex === index ? { ...option, ...patch } : option,
+                ),
+              },
+            }
+          : component,
+      ),
+    );
+  };
+
+  const addSelectOption = (componentId: string) => {
+    setComponents((prev) =>
+      prev.map((component) => {
+        if (component.id !== componentId || component.type !== 'Select') return component;
+        const options = getSelectOptions(component);
+        const nextIndex = options.length + 1;
+        return {
+          ...component,
+          props: {
+            ...component.props,
+            options: [
+              ...options,
+              { label: `Option ${nextIndex}`, value: `option${nextIndex}` },
+            ],
+          },
+        };
+      }),
+    );
+  };
+
+  const removeSelectOption = (componentId: string, index: number) => {
+    setComponents((prev) =>
+      prev.map((component) => {
+        if (component.id !== componentId || component.type !== 'Select') return component;
+        const options = getSelectOptions(component);
+        return {
+          ...component,
+          props: {
+            ...component.props,
+            options:
+              options.length > 1
+                ? options.filter((_, optionIndex) => optionIndex !== index)
+                : options,
+          },
+        };
+      }),
     );
   };
 
@@ -1254,6 +1580,31 @@ function App() {
     }
   };
 
+  const updateGridColumnDataType = (
+    componentId: string,
+    field: string,
+    dataType: GridDataType,
+  ) => {
+    setComponents((prev) =>
+      prev.map((c) => {
+        if (c.id !== componentId || c.type !== 'AgGrid') return c;
+        return {
+          ...c,
+          props: {
+            ...c.props,
+            columnDefs: getGridColumns(c).map((col) =>
+              col.field === field ? { ...col, dataType } : col,
+            ),
+            rowData: getGridRows(c).map((row) => ({
+              ...row,
+              [field]: coerceGridValue(String(row[field] ?? ''), dataType),
+            })),
+          },
+        };
+      }),
+    );
+  };
+
   const addGridColumn = (componentId: string) => {
     setComponents((prev) =>
       prev.map((c) => {
@@ -1264,7 +1615,7 @@ function App() {
           ...c,
           props: {
             ...c.props,
-            columnDefs: [...columns, { field }],
+            columnDefs: [...columns, { field, dataType: 'string' }],
             rowData: getGridRows(c).map((row) => ({ ...row, [field]: '' })),
           },
         };
@@ -1297,6 +1648,9 @@ function App() {
       prev.map((c) => {
         if (c.id !== componentId || c.type !== 'AgGrid') return c;
         const rows = getGridRows(c);
+        const dataType = getColumnDataType(
+          getGridColumns(c).find((column) => column.field === field) ?? {},
+        );
         return {
           ...c,
           props: {
@@ -1305,7 +1659,7 @@ function App() {
               index === rowIndex
                 ? {
                     ...row,
-                    [field]: value,
+                    [field]: coerceGridValue(value, dataType),
                   }
                 : row,
             ),
@@ -1320,7 +1674,9 @@ function App() {
       prev.map((c) => {
         if (c.id !== componentId || c.type !== 'AgGrid') return c;
         const cols = getVisibleGridColumns(c);
-        const emptyRow = Object.fromEntries(cols.map((col) => [col.field, '']));
+        const emptyRow = Object.fromEntries(
+          cols.map((col) => [col.field, coerceGridValue('', getColumnDataType(col))]),
+        );
         return {
           ...c,
           props: {
@@ -1348,7 +1704,7 @@ function App() {
   };
 
   const onItemPointerDown = (e: React.PointerEvent, c: ScreenComponent) => {
-    if ((e.target as HTMLElement).closest('[data-delete-btn],[data-resize-handle],[data-grid-editor],[data-bind-drag]')) return;
+    if ((e.target as HTMLElement).closest('[data-delete-btn],[data-resize-handle],[data-grid-editor],[data-select-editor],[data-bind-drag]')) return;
     const card = e.currentTarget as HTMLElement;
     const r = card.getBoundingClientRect();
     dragInfoRef.current = {
@@ -1461,8 +1817,8 @@ function App() {
         return;
       }
       for (const c of parsed.components) {
-        if (!c || typeof c.id !== 'string' || !['Input', 'Button', 'AgGrid'].includes(c.type)) {
-          message.error('Each component needs id and type (Input | Button | AgGrid).');
+        if (!c || typeof c.id !== 'string' || !isScreenComponentType(c.type)) {
+          message.error(`Each component needs id and type (${SCREEN_COMPONENT_TYPES.join(' | ')}).`);
           return;
         }
         if (c.layout !== undefined) {
@@ -1659,29 +2015,110 @@ function App() {
     }
   };
 
+  const onLogin = async (values: { username: string; password: string }) => {
+    try {
+      const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
+      const nextToken = loginRes.data.token;
+      axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
+      setToken(nextToken);
+      await loadDesignerMetadata();
+    } catch {
+      message.error('Login failed (is the backend running on port 8080?)');
+    }
+  };
+
+  if (!token) {
+    return (
+      <Content
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          background: '#fafafa',
+        }}
+      >
+        <div style={{ width: 420 }}>
+          <Typography.Title level={3}>Designer MVP</Typography.Title>
+          <Form layout="vertical" onFinish={onLogin}>
+            <Form.Item name="username" rules={[{ required: true }]}>
+              <Input placeholder="username" />
+            </Form.Item>
+            <Form.Item name="password" rules={[{ required: true }]}>
+              <Input.Password placeholder="password" />
+            </Form.Item>
+            <Button htmlType="submit" type="primary" block>
+              Login
+            </Button>
+          </Form>
+        </div>
+      </Content>
+    );
+  }
+
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', paddingInline: 24 }}>
-        <Typography.Title level={4} style={{ color: '#fff', margin: 0 }}>
-          Designer MVP
-        </Typography.Title>
+    <Layout style={{ minHeight: '100vh', background: '#f4f6f8' }}>
+      <Header
+        style={{
+          height: 56,
+          lineHeight: 'normal',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingInline: 20,
+          background: '#ffffff',
+          borderBottom: '1px solid #d9dee7',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+          zIndex: 20,
+        }}
+      >
+        <Space size={12}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: '#1677ff',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 700,
+            }}
+          >
+            W
+          </div>
+          <div>
+            <Typography.Title level={5} style={{ margin: 0, lineHeight: 1.1 }}>
+              Web Screen Builder
+            </Typography.Title>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {watchedScreenName} ({watchedScreenId})
+            </Typography.Text>
+          </div>
+        </Space>
       </Header>
       <Layout>
         <Sider
-          width={260}
+          width={300}
           theme="light"
           style={{
-            borderRight: '1px solid #f0f0f0',
+            borderRight: '1px solid #d9dee7',
+            background: '#ffffff',
             padding: 16,
             overflow: 'auto',
+            height: 'calc(100vh - 56px)',
           }}
         >
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
-            Screens
-          </Typography.Title>
-          <Button block type="primary" onClick={newScreen} style={{ marginBottom: 12 }}>
-            New screen
-          </Button>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 10 }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Screens
+            </Typography.Title>
+            <Button size="small" type="primary" onClick={newScreen}>
+              New
+            </Button>
+          </Space>
           <List
             size="small"
             bordered
@@ -1702,12 +2139,20 @@ function App() {
                 </div>
               </List.Item>
             )}
-            style={{ marginBottom: 20, background: '#fff' }}
+            style={{ marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' }}
           />
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
+          <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 10 }}>
             Menus
           </Typography.Title>
-          <div style={{ marginBottom: 20, background: '#fff', border: '1px solid #f0f0f0', padding: 8 }}>
+          <div
+            style={{
+              marginBottom: 20,
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              padding: 8,
+            }}
+          >
             <Tree
               treeData={menuTreeData}
               blockNode
@@ -1726,39 +2171,56 @@ function App() {
               </Typography.Text>
             )}
           </div>
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
+          <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 6 }}>
             Components
           </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-            Drag from here onto the canvas. Drag items to move (8px snap). Use the corner handle to
-            resize.
-          </Typography.Paragraph>
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 8,
+              padding: 8,
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              background: '#f8fafc',
+            }}
+          >
             {TOOLBOX.map((t) => (
-              <Card
-                key={t.type}
-                size="small"
-                hoverable
-                draggable
-                onDragStart={(e) => onDragStartToolbox(e, t.type)}
-                styles={{ body: { padding: 12 } }}
-              >
-                <Space align="start">
-                  <HolderOutlined style={{ color: '#8c8c8c', marginTop: 2 }} />
-                  <div>
-                    <Typography.Text strong>{t.title}</Typography.Text>
-                    <div>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {t.description}
-                      </Typography.Text>
-                    </div>
-                  </div>
-                </Space>
-              </Card>
+              <Tooltip key={t.type} title={`${t.title}: ${t.description}`}>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => onDragStartToolbox(e, t.type)}
+                  aria-label={t.title}
+                  style={{
+                    height: 44,
+                    border: '1px solid #d9dee7',
+                    borderRadius: 8,
+                    background: '#ffffff',
+                    color: '#334155',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'grab',
+                    fontSize: 18,
+                    boxShadow: '0 1px 1px rgba(15,23,42,0.04)',
+                  }}
+                >
+                  {TOOLBOX_ICONS[t.type]}
+                </button>
+              </Tooltip>
             ))}
-          </Space>
+          </div>
         </Sider>
-        <Content style={{ padding: 24, background: '#fafafa' }}>
+        <Content
+          style={{
+            padding: 20,
+            background: '#f4f6f8',
+            height: 'calc(100vh - 56px)',
+            overflow: 'auto',
+            boxSizing: 'border-box',
+          }}
+        >
           <Form
             form={form}
             layout="vertical"
@@ -1783,7 +2245,13 @@ function App() {
                     : prev.filter((key) => key !== 'menu'),
                 );
               }}
-              style={{ width: '100%', marginBottom: 16, background: '#fff' }}
+              style={{
+                width: '100%',
+                marginBottom: 12,
+                background: '#fff',
+                borderRadius: 8,
+                borderColor: '#e5e7eb',
+              }}
               items={[
                 {
                   key: 'menu',
@@ -1795,8 +2263,27 @@ function App() {
                       </Typography.Text>
                     </Space>
                   ),
+                  extra: (
+                    <Button
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        saveMenuOnly();
+                      }}
+                    >
+                      Save menu
+                    </Button>
+                  ),
                   children: (
-                    <Space wrap size="large" style={{ width: '100%' }} align="start">
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 24,
+                        width: '100%',
+                        flexWrap: 'wrap',
+                      }}
+                    >
                       <Form.Item
                         name="menuId"
                         label="Menu ID"
@@ -1847,11 +2334,8 @@ function App() {
                             ]}
                           />
                         </Form.Item>
-                        <Form.Item label=" " style={{ marginBottom: 0 }}>
-                          <Button onClick={saveMenuOnly}>Save menu only</Button>
-                        </Form.Item>
                       </Space>
-                    </Space>
+                    </div>
                   ),
                 },
               ]}
@@ -1867,7 +2351,12 @@ function App() {
                     : prev.filter((key) => key !== 'screen'),
                 );
               }}
-              style={{ width: '100%', background: '#fff' }}
+              style={{
+                width: '100%',
+                background: '#fff',
+                borderRadius: 8,
+                borderColor: '#e5e7eb',
+              }}
               items={[
                 {
                   key: 'screen',
@@ -1879,8 +2368,28 @@ function App() {
                       </Typography.Text>
                     </Space>
                   ),
+                  extra: (
+                    <Button
+                      size="small"
+                      type="primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        save();
+                      }}
+                    >
+                      Save screen
+                    </Button>
+                  ),
                   children: (
-                    <Space wrap size="large" style={{ width: '100%' }} align="start">
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 24,
+                        width: '100%',
+                        flexWrap: 'wrap',
+                      }}
+                    >
                       <Form.Item
                         name="screenId"
                         label="Screen ID"
@@ -1897,7 +2406,7 @@ function App() {
                       >
                         <Input />
                       </Form.Item>
-                    </Space>
+                    </div>
                   ),
                 },
               ]}
@@ -1906,11 +2415,6 @@ function App() {
 
           <Tabs
             activeKey={jsonTab}
-            tabBarExtraContent={
-              <Button type="primary" onClick={save}>
-                Save screen and menu
-              </Button>
-            }
             onChange={(k) => {
               setJsonTab(k);
               if (k === 'json') syncJsonDraftFromComponents();
@@ -1925,23 +2429,37 @@ function App() {
                     onDrop={dropNewFromToolbox}
                     style={{
                       minHeight: 420,
-                      background: '#fff',
-                      border: '2px dashed #d9d9d9',
-                      borderRadius: 8,
-                      padding: '40px 16px 16px',
+                      background: '#ffffff',
+                      border: '1px solid #d9dee7',
+                      borderRadius: 10,
+                      padding: '16px 16px 24px',
                       transition: 'border-color 0.2s',
+                      boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                     }}
                   >
+                    <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 14 }}>
+                      <Typography.Title level={5} style={{ margin: 0 }}>
+                        Screen Layout
+                      </Typography.Title>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {components.length} components
+                      </Typography.Text>
+                    </Space>
                     <div
                       ref={canvasInnerRef}
                       onDragOver={acceptDragOver}
                       onDrop={dropNewFromToolbox}
                       style={{
                         position: 'relative',
-                        minHeight: 380,
+                        minHeight: 460,
                         width: '100%',
+                        marginTop: 8,
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 8,
+                        backgroundColor: '#fbfcfe',
                         backgroundSize: `${GRID}px ${GRID}px`,
-                        backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)`,
+                        backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+                        overflow: 'visible',
                       }}
                     >
                       {components.length === 0 ? (
@@ -1968,10 +2486,10 @@ function App() {
                                 zIndex: c.zIndex ?? 1,
                                 boxSizing: 'border-box',
                                 padding: 8,
-                                border: '1px solid #d9d9d9',
+                                border: '1px solid #cfd7e3',
                                 borderRadius: 8,
                                 background: '#fff',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                                boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
                                 cursor: 'grab',
                                 touchAction: 'none',
                               }}
@@ -1996,42 +2514,49 @@ function App() {
                                 >
                                   {c.type}
                                 </span>
-                                <Input
-                                  key={c.id}
+                                <Button
+                                  type="text"
                                   size="small"
-                                  defaultValue={c.id}
+                                  icon={<EditOutlined />}
+                                  aria-label="Edit component"
+                                  data-delete-btn
                                   onPointerDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onBlur={(e) => updateComponentId(c.id, e.target.value)}
-                                  onPressEnter={(e) => e.currentTarget.blur()}
+                                  onClick={() => setEditingComponentId(c.id)}
                                   style={{
-                                    width: Math.max(100, Math.min(190, c.id.length * 9 + 44)),
-                                    height: 26,
-                                    border: 0,
-                                    background: 'transparent',
+                                    width: 24,
+                                    height: 24,
                                     color: 'inherit',
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    paddingInline: 8,
+                                  }}
+                                />
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  aria-label="Remove component"
+                                  data-delete-btn
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => removeById(c.id)}
+                                  style={{
+                                    width: 24,
+                                    height: 24,
                                   }}
                                 />
                               </div>
                               <div
                                 style={{
-                                  display: 'flex',
-                                  flexDirection: 'row',
-                                  alignItems: 'stretch',
-                                  gap: 8,
+                                  position: 'relative',
                                   height: '100%',
                                   width: '100%',
                                 }}
                               >
-                                <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                                <div style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
                                   <CanvasPreview
                                     item={c}
                                     columnNameDrafts={columnNameDrafts}
                                     onGridColumnDraftChange={updateGridColumnDraft}
                                     onGridColumnChange={updateGridColumn}
+                                    onGridColumnDataTypeChange={updateGridColumnDataType}
                                     onGridAddColumn={addGridColumn}
                                     onGridRemoveColumn={removeGridColumn}
                                     onGridSaveRows={saveGridRowsToLinkedFormat}
@@ -2041,15 +2566,6 @@ function App() {
                                     onGridRemoveRow={removeGridRow}
                                   />
                                 </div>
-                                <Button
-                                  type="text"
-                                  danger
-                                  icon={<DeleteOutlined />}
-                                  aria-label="Remove component"
-                                  data-delete-btn
-                                  onClick={() => removeById(c.id)}
-                                  style={{ flexShrink: 0, alignSelf: 'flex-start' }}
-                                />
                               </div>
                               <div
                                 aria-label="Resize"
@@ -2115,9 +2631,10 @@ function App() {
                       maxHeight: 220,
                       overflow: 'auto',
                       fontSize: 12,
-                      background: '#f5f5f5',
+                      background: '#0f172a',
+                      color: '#dbeafe',
                       padding: 12,
-                      borderRadius: 6,
+                      borderRadius: 8,
                     }}
                   >
                     {serialized}
@@ -2128,21 +2645,23 @@ function App() {
           />
         </Content>
         <Sider
-          width={360}
+          width={400}
           theme="light"
           style={{
-            borderLeft: '1px solid #f0f0f0',
+            borderLeft: '1px solid #d9dee7',
+            background: '#ffffff',
             padding: 16,
             overflow: 'auto',
+            height: 'calc(100vh - 56px)',
           }}
         >
           <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
             <Typography.Title level={5} style={{ margin: 0 }}>
-              Communication
+              Actions
             </Typography.Title>
             <Space size={6}>
-              <Button size="small" onClick={addCommunicationFormat}>
-                Add format
+              <Button size="small" onClick={() => setFormatsModalOpen(true)}>
+                Formats ({communicationFormats.length})
               </Button>
               <Button size="small" onClick={addCommunication}>
                 Add action
@@ -2153,152 +2672,6 @@ function App() {
             Drag a component ID chip from the canvas into a binding box.
           </Typography.Paragraph>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Collapse
-              size="small"
-              items={[
-                {
-                  key: 'formats',
-                  label: `Formats (${communicationFormats.length})`,
-                  children: (
-                    <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                      {communicationFormats.map((format) => (
-                        <Card
-                          key={format.id}
-                          size="small"
-                          title={format.id}
-                          extra={
-                            <Space size={4}>
-                              <Button
-                                size="small"
-                                type="primary"
-                                onClick={() => saveCommunicationFormat(format)}
-                              >
-                                Save
-                              </Button>
-                              <Button
-                                size="small"
-                                danger
-                                onClick={() => deleteCommunicationFormat(format.id)}
-                              >
-                                Delete
-                              </Button>
-                            </Space>
-                          }
-                        >
-                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                            <Input
-                              addonBefore="Name"
-                              value={format.name}
-                              onChange={(e) =>
-                                updateCommunicationFormat(format.id, { name: e.target.value })
-                              }
-                            />
-                            <div>
-                              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                                <Typography.Text strong>Inputs</Typography.Text>
-                                <Button
-                                  size="small"
-                                  onClick={() =>
-                                    addCommunicationFormatField(format.id, 'inputFields')
-                                  }
-                                >
-                                  Add
-                                </Button>
-                              </Space>
-                              <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 6 }}>
-                                {format.inputFields.map((field, index) => (
-                                  <Space.Compact key={`format-input-${index}`} style={{ width: '100%' }}>
-                                    <Input
-                                      value={field}
-                                      onChange={(e) =>
-                                        updateCommunicationFormatField(
-                                          format.id,
-                                          'inputFields',
-                                          index,
-                                          e.target.value,
-                                        )
-                                      }
-                                    />
-                                    <Button
-                                      danger
-                                      disabled={format.inputFields.length === 1}
-                                      onClick={() =>
-                                        removeCommunicationFormatField(
-                                          format.id,
-                                          'inputFields',
-                                          index,
-                                        )
-                                      }
-                                    >
-                                      Delete
-                                    </Button>
-                                  </Space.Compact>
-                                ))}
-                              </Space>
-                            </div>
-                            <div>
-                              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                                <Typography.Text strong>Outputs</Typography.Text>
-                                <Button
-                                  size="small"
-                                  onClick={() =>
-                                    addCommunicationFormatField(format.id, 'outputFields')
-                                  }
-                                >
-                                  Add
-                                </Button>
-                              </Space>
-                              <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 6 }}>
-                                {format.outputFields.map((field, index) => (
-                                  <Space.Compact key={`format-output-${index}`} style={{ width: '100%' }}>
-                                    <Input
-                                      value={field}
-                                      onChange={(e) =>
-                                        updateCommunicationFormatField(
-                                          format.id,
-                                          'outputFields',
-                                          index,
-                                          e.target.value,
-                                        )
-                                      }
-                                    />
-                                    <Button
-                                      danger
-                                      disabled={format.outputFields.length === 1}
-                                      onClick={() =>
-                                        removeCommunicationFormatField(
-                                          format.id,
-                                          'outputFields',
-                                          index,
-                                        )
-                                      }
-                                    >
-                                      Delete
-                                    </Button>
-                                  </Space.Compact>
-                                ))}
-                              </Space>
-                            </div>
-                            <div>
-                              <Typography.Text strong>Sample Output Rows JSON</Typography.Text>
-                              <Input.TextArea
-                                key={`format-${format.id}-${JSON.stringify(format.sampleRows)}`}
-                                rows={5}
-                                defaultValue={JSON.stringify(format.sampleRows, null, 2)}
-                                onBlur={(e) =>
-                                  updateCommunicationSampleRows(format.id, e.target.value)
-                                }
-                                style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 12 }}
-                              />
-                            </div>
-                          </Space>
-                        </Card>
-                      ))}
-                    </Space>
-                  ),
-                },
-              ]}
-            />
             {communications.map((comm) => {
               const selectedFormat =
                 communicationFormats.find((format) => format.id === (comm.formatId || comm.id)) ??
@@ -2331,6 +2704,7 @@ function App() {
                   key={comm.id}
                   size="small"
                   title={comm.name || comm.id}
+                  style={{ borderRadius: 8, borderColor: '#e5e7eb' }}
                   extra={
                     <Space size={4}>
                       <Button size="small" type="primary" onClick={() => saveAction(comm.id)}>
@@ -2360,24 +2734,30 @@ function App() {
                       value={comm.name}
                       onChange={(e) => updateCommunication(comm.id, { name: e.target.value })}
                     />
-                    <Input
-                      addonBefore="Format"
-                      list="communication-format-ids"
-                      value={comm.formatId || comm.id}
-                      onChange={(e) => {
-                        const nextFormatId = e.target.value.trim();
-                        updateCommunication(comm.id, { formatId: nextFormatId });
-                        comm.outputBindings.forEach((binding) => {
-                          if (binding.componentId) {
-                            applyFormatRowsToEmptyGrid(
-                              comm.id,
-                              binding.componentId,
-                              nextFormatId,
-                            );
-                          }
-                        });
-                      }}
-                    />
+                    <div>
+                      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Typography.Text strong>Format</Typography.Text>
+                        <Button size="small" type="link" onClick={() => setFormatsModalOpen(true)}>
+                          Manage
+                        </Button>
+                      </Space>
+                      <Select
+                        placeholder="Select format"
+                        value={comm.formatId || undefined}
+                        options={[
+                          ...communicationFormats.map((format) => ({
+                            label: `${format.name || format.id} (${format.id})`,
+                            value: format.id,
+                          })),
+                          ...(comm.formatId &&
+                          !communicationFormats.some((format) => format.id === comm.formatId)
+                            ? [{ label: `${comm.formatId} (missing)`, value: comm.formatId }]
+                            : []),
+                        ]}
+                        onChange={(value) => changeCommunicationFormat(comm, value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
                     <div>
                       <Typography.Text strong>Trigger Button</Typography.Text>
                       <Space.Compact style={{ width: '100%', marginTop: 6 }}>
@@ -2432,12 +2812,17 @@ function App() {
                               <div
                                 onDragOver={acceptComponentBindingDrop}
                                 onDrop={(e) => {
-                                  const dropped = readDroppedComponent(e, ['Input']);
+                                  const dropped = readDroppedComponent(e, [
+                                    'Input',
+                                    'Select',
+                                    'Checkbox',
+                                    'DatePicker',
+                                  ]);
                                   if (dropped) bindInputComponent(comm.id, index, dropped.id);
                                 }}
                                 style={{ ...dropStyle, flex: 1 }}
                               >
-                                {inputBinding.componentId || 'Drop Input here'}
+                                {inputBinding.componentId || 'Drop input component here'}
                               </div>
                               <Button
                                 disabled={!inputBinding.componentId}
@@ -2518,6 +2903,338 @@ function App() {
                 </Card>
               );
             })}
+            <Modal
+              open={!!editingComponent}
+              title={editingComponent ? `${editingComponent.type} Component` : 'Component'}
+              width={720}
+              footer={null}
+              destroyOnClose
+              onCancel={() => setEditingComponentId(null)}
+            >
+              {editingComponent && (
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Input
+                    key={editingComponent.id}
+                    addonBefore="ID"
+                    defaultValue={editingComponent.id}
+                    onBlur={(e) => updateComponentId(editingComponent.id, e.target.value)}
+                    onPressEnter={(e) => e.currentTarget.blur()}
+                  />
+                  {editingComponent.type === 'Text' && (
+                    <Input
+                      addonBefore="Text"
+                      value={(editingComponent.props?.text as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { text: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'Input' && (
+                    <Input
+                      addonBefore="Placeholder"
+                      value={(editingComponent.props?.placeholder as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { placeholder: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'Select' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Placeholder"
+                        value={(editingComponent.props?.placeholder as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, {
+                            placeholder: e.target.value,
+                          })
+                        }
+                      />
+                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                        <Typography.Text strong>Options</Typography.Text>
+                        <Button size="small" onClick={() => addSelectOption(editingComponent.id)}>
+                          Add
+                        </Button>
+                      </Space>
+                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                        {getSelectOptions(editingComponent).map((option, index) => (
+                          <Space.Compact key={`${option.value}-${index}`} style={{ width: '100%' }}>
+                            <Input
+                              addonBefore="label"
+                              value={option.label}
+                              onChange={(e) =>
+                                updateSelectOption(editingComponent.id, index, {
+                                  label: e.target.value,
+                                })
+                              }
+                            />
+                            <Input
+                              addonBefore="value"
+                              value={option.value}
+                              onChange={(e) =>
+                                updateSelectOption(editingComponent.id, index, {
+                                  value: e.target.value,
+                                })
+                              }
+                            />
+                            <Button
+                              danger
+                              disabled={getSelectOptions(editingComponent).length === 1}
+                              onClick={() => removeSelectOption(editingComponent.id, index)}
+                            >
+                              Delete
+                            </Button>
+                          </Space.Compact>
+                        ))}
+                      </Space>
+                    </Space>
+                  )}
+                  {editingComponent.type === 'Checkbox' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Label"
+                        value={(editingComponent.props?.label as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { label: e.target.value })
+                        }
+                      />
+                      <Checkbox
+                        checked={Boolean(editingComponent.props?.checked)}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, {
+                            checked: e.target.checked,
+                          })
+                        }
+                      >
+                        Checked
+                      </Checkbox>
+                    </Space>
+                  )}
+                  {editingComponent.type === 'DatePicker' && (
+                    <Input
+                      addonBefore="Placeholder"
+                      value={(editingComponent.props?.placeholder as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { placeholder: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'Button' && (
+                    <Input
+                      addonBefore="Text"
+                      value={(editingComponent.props?.text as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { text: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'AgGrid' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Typography.Text strong>Column Definitions JSON</Typography.Text>
+                      <Input.TextArea
+                        key={`${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`}
+                        rows={5}
+                        defaultValue={JSON.stringify(editingComponent.props?.columnDefs ?? [], null, 2)}
+                        onBlur={(e) => {
+                          try {
+                            const parsed = JSON.parse(e.target.value);
+                            if (!Array.isArray(parsed)) {
+                              message.error('Column definitions must be a JSON array.');
+                              return;
+                            }
+                            updateComponentProps(editingComponent.id, { columnDefs: parsed });
+                          } catch {
+                            message.error('Invalid column definitions JSON.');
+                          }
+                        }}
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}
+                      />
+                      <Typography.Text strong>Rows JSON</Typography.Text>
+                      <Input.TextArea
+                        key={`${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`}
+                        rows={5}
+                        defaultValue={JSON.stringify(editingComponent.props?.rowData ?? [], null, 2)}
+                        onBlur={(e) => {
+                          try {
+                            const parsed = JSON.parse(e.target.value);
+                            if (!Array.isArray(parsed)) {
+                              message.error('Rows must be a JSON array.');
+                              return;
+                            }
+                            updateComponentProps(editingComponent.id, { rowData: parsed });
+                          } catch {
+                            message.error('Invalid rows JSON.');
+                          }
+                        }}
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}
+                      />
+                    </Space>
+                  )}
+                </Space>
+              )}
+            </Modal>
+            <Modal
+              open={formatsModalOpen}
+              title="Communication Formats"
+              width={920}
+              footer={null}
+              destroyOnClose
+              onCancel={() => setFormatsModalOpen(false)}
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center">
+                  <Select
+                    placeholder="Select format"
+                    value={selectedFormat?.id}
+                    options={communicationFormats.map((format) => ({
+                      label: `${format.name || format.id} (${format.id})`,
+                      value: format.id,
+                    }))}
+                    onChange={setSelectedFormatId}
+                    style={{ flex: 1, minWidth: 280 }}
+                  />
+                  <Button type="primary" onClick={addCommunicationFormat}>
+                    Add format
+                  </Button>
+                </Space>
+                {selectedFormat ? (
+                  <div style={{ maxHeight: 640, overflow: 'auto' }}>
+                    <Card
+                      key={selectedFormat.id}
+                      size="small"
+                      title={selectedFormat.id}
+                      extra={
+                        <Space size={4}>
+                          <Button
+                            size="small"
+                            type="primary"
+                            onClick={() => saveCommunicationFormat(selectedFormat)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="small"
+                            danger
+                            onClick={() => deleteCommunicationFormat(selectedFormat.id)}
+                          >
+                            Delete
+                          </Button>
+                        </Space>
+                      }
+                    >
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Input
+                          addonBefore="Name"
+                          value={selectedFormat.name}
+                          onChange={(e) =>
+                            updateCommunicationFormat(selectedFormat.id, { name: e.target.value })
+                          }
+                        />
+                        <div>
+                          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                            <Typography.Text strong>Inputs</Typography.Text>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                addCommunicationFormatField(selectedFormat.id, 'inputFields')
+                              }
+                            >
+                              Add
+                            </Button>
+                          </Space>
+                          <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 6 }}>
+                            {selectedFormat.inputFields.map((field, index) => (
+                              <Space.Compact key={`format-input-${index}`} style={{ width: '100%' }}>
+                                <Input
+                                  value={field}
+                                  onChange={(e) =>
+                                    updateCommunicationFormatField(
+                                      selectedFormat.id,
+                                      'inputFields',
+                                      index,
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                                <Button
+                                  danger
+                                  disabled={selectedFormat.inputFields.length === 1}
+                                  onClick={() =>
+                                    removeCommunicationFormatField(
+                                      selectedFormat.id,
+                                      'inputFields',
+                                      index,
+                                    )
+                                  }
+                                >
+                                  Delete
+                                </Button>
+                              </Space.Compact>
+                            ))}
+                          </Space>
+                        </div>
+                        <div>
+                          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                            <Typography.Text strong>Outputs</Typography.Text>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                addCommunicationFormatField(selectedFormat.id, 'outputFields')
+                              }
+                            >
+                              Add
+                            </Button>
+                          </Space>
+                          <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 6 }}>
+                            {selectedFormat.outputFields.map((field, index) => (
+                              <Space.Compact key={`format-output-${index}`} style={{ width: '100%' }}>
+                                <Input
+                                  value={field}
+                                  onChange={(e) =>
+                                    updateCommunicationFormatField(
+                                      selectedFormat.id,
+                                      'outputFields',
+                                      index,
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                                <Button
+                                  danger
+                                  disabled={selectedFormat.outputFields.length === 1}
+                                  onClick={() =>
+                                    removeCommunicationFormatField(
+                                      selectedFormat.id,
+                                      'outputFields',
+                                      index,
+                                    )
+                                  }
+                                >
+                                  Delete
+                                </Button>
+                              </Space.Compact>
+                            ))}
+                          </Space>
+                        </div>
+                        <div>
+                          <Typography.Text strong>Sample Output Rows JSON</Typography.Text>
+                          <Input.TextArea
+                            key={`format-${selectedFormat.id}-${JSON.stringify(selectedFormat.sampleRows)}`}
+                            rows={5}
+                            defaultValue={JSON.stringify(selectedFormat.sampleRows, null, 2)}
+                            onBlur={(e) =>
+                              updateCommunicationSampleRows(selectedFormat.id, e.target.value)
+                            }
+                            style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 12 }}
+                          />
+                        </div>
+                      </Space>
+                    </Card>
+                  </div>
+                ) : (
+                  <Typography.Text type="secondary">No formats. Add one to start.</Typography.Text>
+                )}
+              </Space>
+            </Modal>
             <datalist id="communication-format-ids">
               {communicationFormats.map((format) => (
                 <option key={format.id} value={format.id} />

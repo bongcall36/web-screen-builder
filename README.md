@@ -9,8 +9,36 @@ Metadata-driven MVP for designing and running simple web screens.
 
 ## Metadata Shape
 Screens are saved as JSON with:
-- `components`: visual components such as `Input`, `Button`, and `AgGrid`.
+- `components`: visual components such as `Text`, `Input`, `Select`, `Checkbox`, `DatePicker`, `Button`, and `AgGrid`.
 - `communications`: action definitions that connect input components to backend calls and response rows to output components.
+
+Supported MVP component types:
+- `Text`: static label text.
+- `Input`: text input.
+- `Select`: option input with `props.options`.
+- `Checkbox`: boolean input.
+- `DatePicker`: date input stored as a date string.
+- `Button`: action trigger.
+- `AgGrid`: tabular data output/input.
+
+Grid column metadata supports:
+- `field`: row object field name.
+- `dataType`: optional column type. Supported MVP values are `string`, `number`, `boolean`, and `date`; omitted values are treated as `string`.
+
+Example grid component metadata:
+```json
+{
+  "id": "grid1",
+  "type": "AgGrid",
+  "props": {
+    "columnDefs": [
+      { "field": "id", "dataType": "number" },
+      { "field": "name", "dataType": "string" }
+    ],
+    "rowData": [{ "id": 1, "name": "Alice" }]
+  }
+}
+```
 
 Menus are saved independently and can be nested:
 - `id`, `name`: menu node identity.
@@ -41,6 +69,9 @@ Example communication:
 - `GET /api/communications/formats`
 - `POST /api/communications/formats`
 - `POST /api/communications/{actionId}/execute`
+
+All APIs except `POST /api/auth/login` require `Authorization: Bearer <token>`.
+The MVP login endpoint currently returns a mock token for local development.
 
 ## Persistence
 MVP metadata is stored as JSON files under:

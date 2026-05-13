@@ -127,7 +127,10 @@ public class ScreenController {
           "id", "grid1",
           "type", "AgGrid",
           "props", Map.of(
-            "columnDefs", List.of(Map.of("field", "id"), Map.of("field", "name")),
+            "columnDefs", List.of(
+              Map.of("field", "id", "dataType", "number"),
+              Map.of("field", "name", "dataType", "string")
+            ),
             "rowData", List.of(Map.of("id", 1, "name", "Alice"), Map.of("id", 2, "name", "Bob"))
           )
         )

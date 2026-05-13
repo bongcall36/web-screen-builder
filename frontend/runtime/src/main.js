@@ -2,7 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { AgGridReact } from 'ag-grid-react';
-import { Button, Form, Input, Layout, Modal, Space, Tree, Typography, message } from 'antd';
+import { Button, Checkbox, DatePicker, Form, Input, Layout, Modal, Select, Space, Tree, Typography, message, } from 'antd';
 import axios from 'axios';
 import 'antd/dist/reset.css';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -10,8 +10,16 @@ import 'ag-grid-community/styles/ag-theme-quartz.css';
 const { Header, Content, Sider } = Layout;
 function defaultSize(type) {
     switch (type) {
+        case 'Text':
+            return { w: 200, h: 32 };
         case 'Input':
             return { w: 256, h: 40 };
+        case 'Select':
+            return { w: 220, h: 40 };
+        case 'Checkbox':
+            return { w: 160, h: 32 };
+        case 'DatePicker':
+            return { w: 180, h: 40 };
         case 'Button':
             return { w: 160, h: 40 };
         case 'AgGrid':
@@ -32,14 +40,45 @@ function effectiveLayout(c) {
 function getStackPosition(index) {
     return { x: 12, y: 12 + index * 80 };
 }
+function getSelectOptions(props) {
+    const raw = Array.isArray(props?.options) ? props.options : [];
+    return raw
+        .filter((option) => typeof option === 'object' && option !== null)
+        .map((option) => ({
+        label: String(option.label ?? option.value ?? ''),
+        value: String(option.value ?? option.label ?? ''),
+    }))
+        .filter((option) => option.value);
+}
 function getGridColumnDefs(props) {
     const columnDefs = Array.isArray(props?.columnDefs) ? props.columnDefs : [];
-    return columnDefs.map((columnDef) => ({
-        flex: columnDef.flex ?? 1,
-        minWidth: columnDef.minWidth ?? 80,
-        ...columnDef,
-        cellDataType: false,
-    }));
+    return columnDefs.map((columnDef) => {
+        const dataType = getGridDataType(columnDef.dataType);
+        return {
+            flex: columnDef.flex ?? 1,
+            minWidth: columnDef.minWidth ?? 80,
+            ...columnDef,
+            cellDataType: toAgGridCellDataType(dataType),
+            filter: toAgGridFilter(dataType),
+        };
+    });
+}
+function getGridDataType(value) {
+    return value === 'number' || value === 'boolean' || value === 'date' ? value : 'string';
+}
+function toAgGridCellDataType(dataType) {
+    if (dataType === 'string')
+        return 'text';
+    if (dataType === 'date')
+        return 'dateString';
+    return dataType;
+}
+function toAgGridFilter(dataType) {
+    if (dataType === 'number')
+        return 'agNumberColumnFilter';
+    if (dataType === 'date')
+        return 'agDateColumnFilter';
+    return 'agTextColumnFilter';
 }
 function menuTargetType(menu) {
     return menu.targetType === 'folder' ? 'folder' : 'screen';
@@ -89,8 +128,26 @@ function DynamicRenderer({ components, inputValues, gridRows, onInputChange, onA
                 height: L.h,
                 boxSizing: 'border-box',
             };
+            if (c.type === 'Text') {
+                return (_jsx("div", { style: common, children: _jsx(Typography.Text, { style: {
+                            display: 'flex',
+                            alignItems: 'center',
+                            width: '100%',
+                            height: '100%',
+                            fontWeight: 600,
+                        }, children: c.props?.text ?? 'Label' }) }, c.id));
+            }
             if (c.type === 'Input') {
-                return (_jsx("div", { style: common, children: _jsx(Input, { placeholder: c.props?.placeholder, value: inputValues[c.id] ?? '', onChange: (e) => onInputChange(c.id, e.target.value), style: { width: '100%', height: '100%', boxSizing: 'border-box' } }) }, c.id));
+                return (_jsx("div", { style: common, children: _jsx(Input, { placeholder: c.props?.placeholder, value: String(inputValues[c.id] ?? ''), onChange: (e) => onInputChange(c.id, e.target.value), style: { width: '100%', height: '100%', boxSizing: 'border-box' } }) }, c.id));
+            }
+            if (c.type === 'Select') {
+                return (_jsx("div", { style: common, children: _jsx(Select, { placeholder: c.props?.placeholder, options: getSelectOptions(c.props), value: inputValues[c.id] || undefined, onChange: (value) => onInputChange(c.id, value), style: { width: '100%', height: '100%' } }) }, c.id));
+            }
+            if (c.type === 'Checkbox') {
+                return (_jsx("div", { style: common, children: _jsx(Checkbox, { checked: Boolean(inputValues[c.id] ?? c.props?.checked), onChange: (e) => onInputChange(c.id, e.target.checked), children: c.props?.label ?? 'Checkbox' }) }, c.id));
+            }
+            if (c.type === 'DatePicker') {
+                return (_jsx("div", { style: common, children: _jsx(DatePicker, { placeholder: c.props?.placeholder, onChange: (_, dateString) => onInputChange(c.id, Array.isArray(dateString) ? dateString[0] ?? '' : dateString), style: { width: '100%', height: '100%' } }) }, c.id));
             }
             if (c.type === 'Button') {
                 return (_jsx("div", { style: common, children: _jsx(Button, { type: "primary", onClick: () => onAction(c.id), style: { width: '100%', height: '100%' }, children: c.props?.text ?? 'Button' }) }, c.id));
@@ -126,7 +183,9 @@ function App() {
     };
     const onLogin = async (values) => {
         const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
-        setToken(loginRes.data.token);
+        const nextToken = loginRes.data.token;
+        axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
+        setToken(nextToken);
         await Promise.all([loadMenus(), loadCommunicationFormats()]);
     };
     const loadScreenForMenu = async (item) => {

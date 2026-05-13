@@ -452,7 +452,7 @@ function App() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#f4f6f8' }}>
       {!token && (
         <Content
           style={{
@@ -461,10 +461,44 @@ function App() {
             alignItems: 'center',
             justifyContent: 'center',
             padding: 24,
+            background: '#f4f6f8',
           }}
         >
-          <div style={{ width: 420 }}>
-            <Typography.Title level={3}>MVP Runtime</Typography.Title>
+          <div
+            style={{
+              width: 420,
+              padding: 28,
+              border: '1px solid #d9dee7',
+              borderRadius: 10,
+              background: '#ffffff',
+              boxShadow: '0 8px 24px rgba(15,23,42,0.08)',
+            }}
+          >
+            <Space size={12} style={{ marginBottom: 24 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: '#1677ff',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                }}
+              >
+                W
+              </div>
+              <div>
+                <Typography.Title level={4} style={{ margin: 0 }}>
+                  Web Screen Runtime
+                </Typography.Title>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Sign in to open published screens
+                </Typography.Text>
+              </div>
+            </Space>
             <Form layout="vertical" onFinish={onLogin}>
               <Form.Item name="username" rules={[{ required: true }]}>
                 <Input placeholder="username" />
@@ -481,64 +515,107 @@ function App() {
       )}
 
       {!!token && (
-        <Layout style={{ minHeight: '100vh' }}>
-          <Sider
-            width={260}
-            theme="light"
+        <Layout style={{ minHeight: '100vh', background: '#f4f6f8' }}>
+          <Header
             style={{
-              borderRight: '1px solid #f0f0f0',
-              padding: 16,
-              overflow: 'auto',
+              height: 56,
+              lineHeight: 'normal',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingInline: 20,
+              background: '#ffffff',
+              borderBottom: '1px solid #d9dee7',
+              boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+              zIndex: 20,
             }}
           >
-            <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Typography.Title level={5} style={{ margin: 0 }}>
-                Menu
-              </Typography.Title>
-              <Button size="small" onClick={loadMenus}>
-                Refresh
-              </Button>
-            </Space>
-            <div style={{ border: '1px solid #f0f0f0', padding: 8, background: '#fff' }}>
-              <Tree
-                treeData={menuTreeData}
-                blockNode
-                showLine
-                expandedKeys={menus.map((menu) => menu.id)}
-                selectedKeys={activeMenu ? [activeMenu.id] : []}
-                onSelect={(keys) => {
-                  const item = menus.find((menu) => menu.id === String(keys[0] ?? ''));
-                  if (item) {
-                    openMenu(item);
-                  }
-                }}
-              />
-              {menus.length === 0 && (
-                <Typography.Text type="secondary">No menus</Typography.Text>
-              )}
-            </div>
-          </Sider>
-
-          <Layout>
-            <Header
-              style={{
-                background: '#fff',
-                borderBottom: '1px solid #f0f0f0',
-                paddingInline: 24,
-              }}
-            >
-              <Typography.Title level={4} style={{ margin: 0, lineHeight: '64px' }}>
-                {activeMenu?.name ?? 'Select a menu'}
-              </Typography.Title>
-            </Header>
-            <Content style={{ background: '#fafafa', padding: 24, overflow: 'auto' }}>
+            <Space size={12}>
               <div
                 style={{
-                  minHeight: 'calc(100vh - 112px)',
-                  background: '#fff',
-                  border: '1px solid #f0f0f0',
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  background: '#1677ff',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                }}
+              >
+                W
+              </div>
+              <div>
+                <Typography.Title level={5} style={{ margin: 0, lineHeight: 1.1 }}>
+                  Web Screen Runtime
+                </Typography.Title>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {activeMenu?.name ?? 'Select a menu'}
+                </Typography.Text>
+              </div>
+            </Space>
+            <Button onClick={loadMenus}>Refresh menus</Button>
+          </Header>
+          <Layout>
+            <Sider
+              width={300}
+              theme="light"
+              style={{
+                borderRight: '1px solid #d9dee7',
+                background: '#ffffff',
+                padding: 16,
+                overflow: 'auto',
+                height: 'calc(100vh - 56px)',
+              }}
+            >
+              <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 10 }}>
+                Menu
+              </Typography.Title>
+              <div
+                style={{
+                  border: '1px solid #e5e7eb',
                   borderRadius: 8,
+                  padding: 8,
+                  background: '#fff',
+                }}
+              >
+                <Tree
+                  treeData={menuTreeData}
+                  blockNode
+                  showLine
+                  expandedKeys={menus.map((menu) => menu.id)}
+                  selectedKeys={activeMenu ? [activeMenu.id] : []}
+                  onSelect={(keys) => {
+                    const item = menus.find((menu) => menu.id === String(keys[0] ?? ''));
+                    if (item) {
+                      openMenu(item);
+                    }
+                  }}
+                />
+                {menus.length === 0 && (
+                  <Typography.Text type="secondary">No menus</Typography.Text>
+                )}
+              </div>
+            </Sider>
+
+            <Content
+              style={{
+                background: '#f4f6f8',
+                padding: 20,
+                overflow: 'auto',
+                height: 'calc(100vh - 56px)',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div
+                style={{
+                  minHeight: '100%',
+                  background: '#fff',
+                  border: '1px solid #d9dee7',
+                  borderRadius: 10,
                   padding: 24,
+                  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
                 }}
               >
                 {activeMenu ? (
@@ -552,7 +629,19 @@ function App() {
                     onAction={executeAction}
                   />
                 ) : (
-                  <Typography.Text type="secondary">Choose a menu from the left.</Typography.Text>
+                  <div
+                    style={{
+                      minHeight: 360,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: '1px dashed #cfd7e3',
+                      borderRadius: 8,
+                      background: '#fbfcfe',
+                    }}
+                  >
+                    <Typography.Text type="secondary">Choose a menu from the left.</Typography.Text>
+                  </div>
                 )}
               </div>
             </Content>
@@ -567,7 +656,15 @@ function App() {
             onCancel={() => setPopupScreen(null)}
           >
             {popupScreen && (
-              <div style={{ minHeight: 480 }}>
+              <div
+                style={{
+                  minHeight: 480,
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  padding: 20,
+                  background: '#fbfcfe',
+                }}
+              >
                 <DynamicRenderer
                   components={popupScreen.components}
                   inputValues={popupScreen.inputValues}

@@ -261,32 +261,95 @@ function App() {
             message.error(`${action.name || action.id} failed`);
         }
     };
-    return (_jsxs(Layout, { style: { minHeight: '100vh' }, children: [!token && (_jsx(Content, { style: {
+    return (_jsxs(Layout, { style: { minHeight: '100vh', background: '#f4f6f8' }, children: [!token && (_jsx(Content, { style: {
                     minHeight: '100vh',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     padding: 24,
-                }, children: _jsxs("div", { style: { width: 420 }, children: [_jsx(Typography.Title, { level: 3, children: "MVP Runtime" }), _jsxs(Form, { layout: "vertical", onFinish: onLogin, children: [_jsx(Form.Item, { name: "username", rules: [{ required: true }], children: _jsx(Input, { placeholder: "username" }) }), _jsx(Form.Item, { name: "password", rules: [{ required: true }], children: _jsx(Input.Password, { placeholder: "password" }) }), _jsx(Button, { htmlType: "submit", type: "primary", block: true, children: "Login" })] })] }) })), !!token && (_jsxs(Layout, { style: { minHeight: '100vh' }, children: [_jsxs(Sider, { width: 260, theme: "light", style: {
-                            borderRight: '1px solid #f0f0f0',
-                            padding: 16,
-                            overflow: 'auto',
-                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Menu" }), _jsx(Button, { size: "small", onClick: loadMenus, children: "Refresh" })] }), _jsxs("div", { style: { border: '1px solid #f0f0f0', padding: 8, background: '#fff' }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: menus.map((menu) => menu.id), selectedKeys: activeMenu ? [activeMenu.id] : [], onSelect: (keys) => {
-                                            const item = menus.find((menu) => menu.id === String(keys[0] ?? ''));
-                                            if (item) {
-                                                openMenu(item);
-                                            }
-                                        } }), menus.length === 0 && (_jsx(Typography.Text, { type: "secondary", children: "No menus" }))] })] }), _jsxs(Layout, { children: [_jsx(Header, { style: {
-                                    background: '#fff',
-                                    borderBottom: '1px solid #f0f0f0',
-                                    paddingInline: 24,
-                                }, children: _jsx(Typography.Title, { level: 4, style: { margin: 0, lineHeight: '64px' }, children: activeMenu?.name ?? 'Select a menu' }) }), _jsx(Content, { style: { background: '#fafafa', padding: 24, overflow: 'auto' }, children: _jsx("div", { style: {
-                                        minHeight: 'calc(100vh - 112px)',
-                                        background: '#fff',
-                                        border: '1px solid #f0f0f0',
+                    background: '#f4f6f8',
+                }, children: _jsxs("div", { style: {
+                        width: 420,
+                        padding: 28,
+                        border: '1px solid #d9dee7',
+                        borderRadius: 10,
+                        background: '#ffffff',
+                        boxShadow: '0 8px 24px rgba(15,23,42,0.08)',
+                    }, children: [_jsxs(Space, { size: 12, style: { marginBottom: 24 }, children: [_jsx("div", { style: {
+                                        width: 32,
+                                        height: 32,
                                         borderRadius: 8,
+                                        background: '#1677ff',
+                                        color: '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontWeight: 700,
+                                    }, children: "W" }), _jsxs("div", { children: [_jsx(Typography.Title, { level: 4, style: { margin: 0 }, children: "Web Screen Runtime" }), _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: "Sign in to open published screens" })] })] }), _jsxs(Form, { layout: "vertical", onFinish: onLogin, children: [_jsx(Form.Item, { name: "username", rules: [{ required: true }], children: _jsx(Input, { placeholder: "username" }) }), _jsx(Form.Item, { name: "password", rules: [{ required: true }], children: _jsx(Input.Password, { placeholder: "password" }) }), _jsx(Button, { htmlType: "submit", type: "primary", block: true, children: "Login" })] })] }) })), !!token && (_jsxs(Layout, { style: { minHeight: '100vh', background: '#f4f6f8' }, children: [_jsxs(Header, { style: {
+                            height: 56,
+                            lineHeight: 'normal',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            paddingInline: 20,
+                            background: '#ffffff',
+                            borderBottom: '1px solid #d9dee7',
+                            boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                            zIndex: 20,
+                        }, children: [_jsxs(Space, { size: 12, children: [_jsx("div", { style: {
+                                            width: 28,
+                                            height: 28,
+                                            borderRadius: 6,
+                                            background: '#1677ff',
+                                            color: '#fff',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontWeight: 700,
+                                        }, children: "W" }), _jsxs("div", { children: [_jsx(Typography.Title, { level: 5, style: { margin: 0, lineHeight: 1.1 }, children: "Web Screen Runtime" }), _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: activeMenu?.name ?? 'Select a menu' })] })] }), _jsx(Button, { onClick: loadMenus, children: "Refresh menus" })] }), _jsxs(Layout, { children: [_jsxs(Sider, { width: 300, theme: "light", style: {
+                                    borderRight: '1px solid #d9dee7',
+                                    background: '#ffffff',
+                                    padding: 16,
+                                    overflow: 'auto',
+                                    height: 'calc(100vh - 56px)',
+                                }, children: [_jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 10 }, children: "Menu" }), _jsxs("div", { style: {
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: 8,
+                                            padding: 8,
+                                            background: '#fff',
+                                        }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: menus.map((menu) => menu.id), selectedKeys: activeMenu ? [activeMenu.id] : [], onSelect: (keys) => {
+                                                    const item = menus.find((menu) => menu.id === String(keys[0] ?? ''));
+                                                    if (item) {
+                                                        openMenu(item);
+                                                    }
+                                                } }), menus.length === 0 && (_jsx(Typography.Text, { type: "secondary", children: "No menus" }))] })] }), _jsx(Content, { style: {
+                                    background: '#f4f6f8',
+                                    padding: 20,
+                                    overflow: 'auto',
+                                    height: 'calc(100vh - 56px)',
+                                    boxSizing: 'border-box',
+                                }, children: _jsx("div", { style: {
+                                        minHeight: '100%',
+                                        background: '#fff',
+                                        border: '1px solid #d9dee7',
+                                        borderRadius: 10,
                                         padding: 24,
-                                    }, children: activeMenu ? (_jsx(DynamicRenderer, { components: components, inputValues: inputValues, gridRows: gridRows, onInputChange: (componentId, value) => setInputValues((prev) => ({ ...prev, [componentId]: value })), onAction: executeAction })) : (_jsx(Typography.Text, { type: "secondary", children: "Choose a menu from the left." })) }) })] }), _jsx(Modal, { open: !!popupScreen, title: popupScreen?.menu.name, width: 980, footer: null, destroyOnClose: true, onCancel: () => setPopupScreen(null), children: popupScreen && (_jsx("div", { style: { minHeight: 480 }, children: _jsx(DynamicRenderer, { components: popupScreen.components, inputValues: popupScreen.inputValues, gridRows: popupScreen.gridRows, onInputChange: (componentId, value) => setPopupScreen((prev) => prev
+                                        boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                                    }, children: activeMenu ? (_jsx(DynamicRenderer, { components: components, inputValues: inputValues, gridRows: gridRows, onInputChange: (componentId, value) => setInputValues((prev) => ({ ...prev, [componentId]: value })), onAction: executeAction })) : (_jsx("div", { style: {
+                                            minHeight: 360,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            border: '1px dashed #cfd7e3',
+                                            borderRadius: 8,
+                                            background: '#fbfcfe',
+                                        }, children: _jsx(Typography.Text, { type: "secondary", children: "Choose a menu from the left." }) })) }) })] }), _jsx(Modal, { open: !!popupScreen, title: popupScreen?.menu.name, width: 980, footer: null, destroyOnClose: true, onCancel: () => setPopupScreen(null), children: popupScreen && (_jsx("div", { style: {
+                                minHeight: 480,
+                                border: '1px solid #e5e7eb',
+                                borderRadius: 8,
+                                padding: 20,
+                                background: '#fbfcfe',
+                            }, children: _jsx(DynamicRenderer, { components: popupScreen.components, inputValues: popupScreen.inputValues, gridRows: popupScreen.gridRows, onInputChange: (componentId, value) => setPopupScreen((prev) => prev
                                     ? {
                                         ...prev,
                                         inputValues: { ...prev.inputValues, [componentId]: value },

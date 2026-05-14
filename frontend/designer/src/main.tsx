@@ -433,34 +433,8 @@ function nextScreenId(screens: ScreenSummary[]) {
 
 function CanvasPreview({
   item,
-  columnNameDrafts,
-  onGridColumnDraftChange,
-  onGridColumnChange,
-  onGridColumnDataTypeChange,
-  onGridAddColumn,
-  onGridRemoveColumn,
-  onGridSaveRows,
-  onButtonTextChange,
-  onGridCellChange,
-  onGridAddRow,
-  onGridRemoveRow,
 }: {
   item: ScreenComponent;
-  columnNameDrafts: Record<string, string>;
-  onGridColumnDraftChange: (componentId: string, field: string, value: string) => void;
-  onGridColumnChange: (componentId: string, oldField: string) => void;
-  onGridColumnDataTypeChange: (
-    componentId: string,
-    field: string,
-    dataType: GridDataType,
-  ) => void;
-  onGridAddColumn: (componentId: string) => void;
-  onGridRemoveColumn: (componentId: string, field: string) => void;
-  onGridSaveRows: (componentId: string) => void;
-  onButtonTextChange: (componentId: string, value: string) => void;
-  onGridCellChange: (componentId: string, rowIndex: number, field: string, value: string) => void;
-  onGridAddRow: (componentId: string) => void;
-  onGridRemoveRow: (componentId: string, rowIndex: number) => void;
 }) {
   if (item.type === 'Text') {
     return (
@@ -535,31 +509,10 @@ function CanvasPreview({
           background: '#fff',
         }}
       >
-        <Space size={4} wrap style={{ padding: 4, borderBottom: '1px solid #f0f0f0' }}>
-          <Button
-            size="small"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onGridAddColumn(item.id)}
-          >
-            Add column
-          </Button>
-          <Button
-            size="small"
-            type="link"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onGridAddRow(item.id)}
-            style={{ paddingInline: 4 }}
-          >
-            Add row
-          </Button>
-          <Button
-            size="small"
-            type="primary"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onGridSaveRows(item.id)}
-          >
-            Save rows
-          </Button>
+        <Space style={{ width: '100%', padding: 4, borderBottom: '1px solid #f0f0f0' }}>
+          <Typography.Text style={{ fontSize: 12 }} strong>
+            {item.id}
+          </Typography.Text>
         </Space>
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
@@ -575,35 +528,136 @@ function CanvasPreview({
                     textAlign: 'left',
                   }}
                 >
+                  {col.field}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 5).map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {cols.map((col) => {
+                  const field = col.field ?? '';
+                  return (
+                    <td
+                      key={field}
+                      style={{
+                        borderBottom: '1px solid #f5f5f5',
+                        fontSize: 12,
+                        padding: 4,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {String(row[field] ?? '')}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  return null;
+}
+
+function GridEditor({
+  item,
+  columnNameDrafts,
+  onGridColumnDraftChange,
+  onGridColumnChange,
+  onGridColumnDataTypeChange,
+  onGridAddColumn,
+  onGridRemoveColumn,
+  onGridSaveRows,
+  onGridCellChange,
+  onGridAddRow,
+  onGridRemoveRow,
+}: {
+  item: ScreenComponent;
+  columnNameDrafts: Record<string, string>;
+  onGridColumnDraftChange: (componentId: string, field: string, value: string) => void;
+  onGridColumnChange: (componentId: string, oldField: string) => void;
+  onGridColumnDataTypeChange: (
+    componentId: string,
+    field: string,
+    dataType: GridDataType,
+  ) => void;
+  onGridAddColumn: (componentId: string) => void;
+  onGridRemoveColumn: (componentId: string, field: string) => void;
+  onGridSaveRows: (componentId: string) => void;
+  onGridCellChange: (componentId: string, rowIndex: number, field: string, value: string) => void;
+  onGridAddRow: (componentId: string) => void;
+  onGridRemoveRow: (componentId: string, rowIndex: number) => void;
+}) {
+  const cols = getVisibleGridColumns(item);
+  const rows = getGridRows(item);
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Space size={8} wrap>
+        <Button size="small" onClick={() => onGridAddColumn(item.id)}>
+          Add column
+        </Button>
+        <Button size="small" onClick={() => onGridAddRow(item.id)}>
+          Add row
+        </Button>
+        <Button size="small" type="primary" onClick={() => onGridSaveRows(item.id)}>
+          Save rows
+        </Button>
+      </Space>
+      <div
+        style={{
+          maxHeight: 520,
+          overflow: 'auto',
+          border: '1px solid #d9d9d9',
+          borderRadius: 6,
+          background: '#fff',
+        }}
+      >
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th
+                  key={col.field}
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: 4,
+                    textAlign: 'left',
+                    minWidth: 220,
+                  }}
+                >
                   <Space.Compact style={{ width: '100%' }}>
                     <Input
                       size="small"
                       value={columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field}
-                      onPointerDown={(e) => e.stopPropagation()}
                       onChange={(e) =>
                         onGridColumnDraftChange(item.id, col.field ?? '', e.target.value)
                       }
                       onBlur={() => onGridColumnChange(item.id, col.field ?? '')}
                       onPressEnter={(e) => e.currentTarget.blur()}
                     />
-                    <div onPointerDown={(e) => e.stopPropagation()}>
-                      <Select
-                        size="small"
-                        value={getColumnDataType(col)}
-                        options={GRID_DATA_TYPE_OPTIONS}
-                        onChange={(value) =>
-                          onGridColumnDataTypeChange(item.id, col.field ?? '', value)
-                        }
-                        style={{ width: 96 }}
-                      />
-                    </div>
+                    <Select
+                      size="small"
+                      value={getColumnDataType(col)}
+                      options={GRID_DATA_TYPE_OPTIONS}
+                      onChange={(value) =>
+                        onGridColumnDataTypeChange(item.id, col.field ?? '', value)
+                      }
+                      style={{ width: 96 }}
+                    />
                     <Button
                       size="small"
                       type="text"
                       danger
                       icon={<DeleteOutlined />}
                       aria-label="Remove column"
-                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => onGridRemoveColumn(item.id, col.field ?? '')}
                     />
                   </Space.Compact>
@@ -622,7 +676,6 @@ function CanvasPreview({
                       <Input
                         size="small"
                         value={String(row[field] ?? '')}
-                        onPointerDown={(e) => e.stopPropagation()}
                         onChange={(e) =>
                           onGridCellChange(item.id, rowIndex, field, e.target.value)
                         }
@@ -637,7 +690,6 @@ function CanvasPreview({
                     danger
                     icon={<DeleteOutlined />}
                     aria-label="Remove row"
-                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => onGridRemoveRow(item.id, rowIndex)}
                   />
                 </td>
@@ -646,9 +698,8 @@ function CanvasPreview({
           </tbody>
         </table>
       </div>
-    );
-  }
-  return null;
+    </Space>
+  );
 }
 
 const TOOLBOX: { type: ScreenComponentType; title: string; description: string }[] = [
@@ -751,10 +802,6 @@ function App() {
     startH: number;
   } | null>(null);
 
-  const serialized = useMemo(
-    () => JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2),
-    [components, communications],
-  );
   const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
   const selectedFormat =
     communicationFormats.find((format) => format.id === selectedFormatId) ??
@@ -859,6 +906,86 @@ function App() {
 
     setOpenSettings([]);
     message.info('Loaded menu node. Folder menus do not open a screen.');
+  };
+
+  const resetDesignerToBlank = (nextScreens: ScreenSummary[] = screens) => {
+    const screenId = nextScreenId(nextScreens);
+    const name = `Screen ${screenId.replace('screen-', '')}`;
+    form.setFieldsValue({
+      screenId,
+      name,
+      menuId: `menu-${screenId}`,
+      menuName: name,
+      menuParentId: '',
+      menuTargetType: 'screen',
+      menuOpenMode: 'inline',
+    });
+    setEditingMenuId(`menu-${screenId}`);
+    setComponents([]);
+    setCommunications([]);
+    setColumnNameDrafts({});
+    setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+    setJsonTab('visual');
+  };
+
+  const deleteMenu = async (menuId: string) => {
+    try {
+      await axios.delete(`http://localhost:8080/api/menus/${menuId}`);
+      if (editingMenuId === menuId) {
+        form.setFieldsValue({
+          menuId: `menu-${form.getFieldValue('screenId')}`,
+          menuName: form.getFieldValue('name'),
+          menuParentId: '',
+          menuTargetType: 'screen',
+          menuOpenMode: 'inline',
+        });
+        setEditingMenuId(`menu-${form.getFieldValue('screenId')}`);
+      }
+      await loadDesignerMetadata();
+      message.success(`Deleted menu ${menuId}`);
+    } catch {
+      message.error(`Menu delete failed: ${menuId}`);
+    }
+  };
+
+  const confirmDeleteMenu = (menuId: string) => {
+    Modal.confirm({
+      title: 'Delete menu?',
+      content: `Menu ${menuId} will be removed. The linked screen data will remain.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => deleteMenu(menuId),
+    });
+  };
+
+  const deleteScreen = async (screenId: string) => {
+    try {
+      const linkedMenus = menus.filter((menu) => menu.screenId === screenId);
+      await axios.delete(`http://localhost:8080/api/screens/${screenId}`);
+      await Promise.all(
+        linkedMenus.map((menu) => axios.delete(`http://localhost:8080/api/menus/${menu.id}`)),
+      );
+      const nextScreens = screens.filter((screen) => screen.screenId !== screenId);
+      resetDesignerToBlank(nextScreens);
+      await loadDesignerMetadata();
+      message.success(`Deleted screen ${screenId}`);
+    } catch {
+      message.error(`Screen delete failed: ${screenId}`);
+    }
+  };
+
+  const confirmDeleteScreen = (screenId: string) => {
+    const linkedCount = menus.filter((menu) => menu.screenId === screenId).length;
+    Modal.confirm({
+      title: 'Delete screen?',
+      content:
+        linkedCount > 0
+          ? `Screen ${screenId} and ${linkedCount} linked menu item(s) will be removed.`
+          : `Screen ${screenId} will be removed.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => deleteScreen(screenId),
+    });
   };
 
   const bumpZ = useCallback((id: string) => {
@@ -2127,6 +2254,20 @@ function App() {
             renderItem={(screen) => (
               <List.Item
                 onClick={() => loadScreen(screen.screenId)}
+                actions={[
+                  <Button
+                    key="delete"
+                    size="small"
+                    danger
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    aria-label="Delete screen"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      confirmDeleteScreen(screen.screenId);
+                    }}
+                  />,
+                ]}
                 style={{ cursor: 'pointer', paddingInline: 8 }}
               >
                 <div style={{ minWidth: 0 }}>
@@ -2264,15 +2405,27 @@ function App() {
                     </Space>
                   ),
                   extra: (
-                    <Button
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        saveMenuOnly();
-                      }}
-                    >
-                      Save menu
-                    </Button>
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          confirmDeleteMenu(form.getFieldValue('menuId'));
+                        }}
+                      >
+                        Delete menu
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          saveMenuOnly();
+                        }}
+                      >
+                        Save menu
+                      </Button>
+                    </Space>
                   ),
                   children: (
                     <div
@@ -2369,16 +2522,28 @@ function App() {
                     </Space>
                   ),
                   extra: (
-                    <Button
-                      size="small"
-                      type="primary"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        save();
-                      }}
-                    >
-                      Save screen
-                    </Button>
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          confirmDeleteScreen(form.getFieldValue('screenId'));
+                        }}
+                      >
+                        Delete screen
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          save();
+                        }}
+                      >
+                        Save screen
+                      </Button>
+                    </Space>
                   ),
                   children: (
                     <div
@@ -2551,20 +2716,7 @@ function App() {
                                 }}
                               >
                                 <div style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
-                                  <CanvasPreview
-                                    item={c}
-                                    columnNameDrafts={columnNameDrafts}
-                                    onGridColumnDraftChange={updateGridColumnDraft}
-                                    onGridColumnChange={updateGridColumn}
-                                    onGridColumnDataTypeChange={updateGridColumnDataType}
-                                    onGridAddColumn={addGridColumn}
-                                    onGridRemoveColumn={removeGridColumn}
-                                    onGridSaveRows={saveGridRowsToLinkedFormat}
-                                    onButtonTextChange={updateButtonText}
-                                    onGridCellChange={updateGridCell}
-                                    onGridAddRow={addGridRow}
-                                    onGridRemoveRow={removeGridRow}
-                                  />
+                                  <CanvasPreview item={c} />
                                 </div>
                               </div>
                               <div
@@ -2618,31 +2770,6 @@ function App() {
             ]}
           />
 
-          <Collapse
-            style={{ marginTop: 16 }}
-            items={[
-              {
-                key: 'readonly-json',
-                label: 'Live JSON preview (read-only)',
-                children: (
-                  <pre
-                    style={{
-                      margin: 0,
-                      maxHeight: 220,
-                      overflow: 'auto',
-                      fontSize: 12,
-                      background: '#0f172a',
-                      color: '#dbeafe',
-                      padding: 12,
-                      borderRadius: 8,
-                    }}
-                  >
-                    {serialized}
-                  </pre>
-                ),
-              },
-            ]}
-          />
         </Content>
         <Sider
           width={400}
@@ -2906,7 +3033,7 @@ function App() {
             <Modal
               open={!!editingComponent}
               title={editingComponent ? `${editingComponent.type} Component` : 'Component'}
-              width={720}
+              width={editingComponent?.type === 'AgGrid' ? 1080 : 720}
               footer={null}
               destroyOnClose
               onCancel={() => setEditingComponentId(null)}
@@ -3028,46 +3155,83 @@ function App() {
                     />
                   )}
                   {editingComponent.type === 'AgGrid' && (
-                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                      <Typography.Text strong>Column Definitions JSON</Typography.Text>
-                      <Input.TextArea
-                        key={`${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`}
-                        rows={5}
-                        defaultValue={JSON.stringify(editingComponent.props?.columnDefs ?? [], null, 2)}
-                        onBlur={(e) => {
-                          try {
-                            const parsed = JSON.parse(e.target.value);
-                            if (!Array.isArray(parsed)) {
-                              message.error('Column definitions must be a JSON array.');
-                              return;
-                            }
-                            updateComponentProps(editingComponent.id, { columnDefs: parsed });
-                          } catch {
-                            message.error('Invalid column definitions JSON.');
-                          }
-                        }}
-                        style={{ fontFamily: 'monospace', fontSize: 12 }}
-                      />
-                      <Typography.Text strong>Rows JSON</Typography.Text>
-                      <Input.TextArea
-                        key={`${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`}
-                        rows={5}
-                        defaultValue={JSON.stringify(editingComponent.props?.rowData ?? [], null, 2)}
-                        onBlur={(e) => {
-                          try {
-                            const parsed = JSON.parse(e.target.value);
-                            if (!Array.isArray(parsed)) {
-                              message.error('Rows must be a JSON array.');
-                              return;
-                            }
-                            updateComponentProps(editingComponent.id, { rowData: parsed });
-                          } catch {
-                            message.error('Invalid rows JSON.');
-                          }
-                        }}
-                        style={{ fontFamily: 'monospace', fontSize: 12 }}
-                      />
-                    </Space>
+                    <Tabs
+                      items={[
+                        {
+                          key: 'table',
+                          label: 'Table editor',
+                          children: (
+                            <GridEditor
+                              item={editingComponent}
+                              columnNameDrafts={columnNameDrafts}
+                              onGridColumnDraftChange={updateGridColumnDraft}
+                              onGridColumnChange={updateGridColumn}
+                              onGridColumnDataTypeChange={updateGridColumnDataType}
+                              onGridAddColumn={addGridColumn}
+                              onGridRemoveColumn={removeGridColumn}
+                              onGridSaveRows={saveGridRowsToLinkedFormat}
+                              onGridCellChange={updateGridCell}
+                              onGridAddRow={addGridRow}
+                              onGridRemoveRow={removeGridRow}
+                            />
+                          ),
+                        },
+                        {
+                          key: 'json',
+                          label: 'JSON',
+                          children: (
+                            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                              <Typography.Text strong>Column Definitions JSON</Typography.Text>
+                              <Input.TextArea
+                                key={`${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`}
+                                rows={7}
+                                defaultValue={JSON.stringify(
+                                  editingComponent.props?.columnDefs ?? [],
+                                  null,
+                                  2,
+                                )}
+                                onBlur={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    if (!Array.isArray(parsed)) {
+                                      message.error('Column definitions must be a JSON array.');
+                                      return;
+                                    }
+                                    updateComponentProps(editingComponent.id, { columnDefs: parsed });
+                                  } catch {
+                                    message.error('Invalid column definitions JSON.');
+                                  }
+                                }}
+                                style={{ fontFamily: 'monospace', fontSize: 12 }}
+                              />
+                              <Typography.Text strong>Rows JSON</Typography.Text>
+                              <Input.TextArea
+                                key={`${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`}
+                                rows={9}
+                                defaultValue={JSON.stringify(
+                                  editingComponent.props?.rowData ?? [],
+                                  null,
+                                  2,
+                                )}
+                                onBlur={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    if (!Array.isArray(parsed)) {
+                                      message.error('Rows must be a JSON array.');
+                                      return;
+                                    }
+                                    updateComponentProps(editingComponent.id, { rowData: parsed });
+                                  } catch {
+                                    message.error('Invalid rows JSON.');
+                                  }
+                                }}
+                                style={{ fontFamily: 'monospace', fontSize: 12 }}
+                              />
+                            </Space>
+                          ),
+                        },
+                      ]}
+                    />
                   )}
                 </Space>
               )}

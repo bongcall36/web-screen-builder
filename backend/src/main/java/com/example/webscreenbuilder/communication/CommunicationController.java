@@ -82,22 +82,22 @@ public class CommunicationController {
   @PostMapping("/{actionId}/execute")
   public ResponseEntity<?> execute(@PathVariable String actionId, @RequestBody Map<String, Object> body)
     throws IOException {
-    Object rows = body.get("sampleRows");
-    List<?> sampleRows;
-    if (rows instanceof List<?> inlineRows) {
-      sampleRows = inlineRows;
-    } else {
-      sampleRows = readFormatById(actionId).getOrDefault("sampleRows", List.of()) instanceof List<?> formatRows
-        ? formatRows
-        : List.of();
+    if (!isValidId(actionId)) {
+      return ResponseEntity.badRequest().body(Map.of("error", "invalid actionId"));
     }
 
-    String keyword = findKeyword(body.get("input"));
+    Map<String, Object> format = readFormatById(actionId);
+    List<?> sampleRows = format.getOrDefault("sampleRows", List.of()) instanceof List<?> formatRows
+      ? formatRows
+      : List.of();
+
+    Map<?, ?> input = normalizeInput(body);
+    String keyword = findKeyword(input);
     List<?> resultRows = keyword.isBlank()
       ? sampleRows
       : sampleRows.stream().filter(row -> containsKeyword(row, keyword)).toList();
 
-    return ResponseEntity.ok(Map.of("actionId", actionId, "rows", resultRows));
+    return ResponseEntity.ok(Map.of(firstOutputField(format), resultRows));
   }
 
   private void readFormat(Path path, List<Map<String, Object>> rows) {
@@ -145,10 +145,14 @@ public class CommunicationController {
     return value != null && value.matches("[A-Za-z0-9_-]+");
   }
 
-  private String findKeyword(Object input) {
-    if (!(input instanceof Map<?, ?> inputMap)) {
-      return "";
+  private Map<?, ?> normalizeInput(Map<String, Object> body) {
+    if (body.get("input") instanceof Map<?, ?> legacyInput) {
+      return legacyInput;
     }
+    return body;
+  }
+
+  private String findKeyword(Map<?, ?> inputMap) {
     return inputMap.values().stream()
       .filter(String.class::isInstance)
       .map(String.class::cast)
@@ -166,5 +170,18 @@ public class CommunicationController {
       .map(String::valueOf)
       .map(value -> value.toLowerCase(Locale.ROOT))
       .anyMatch(value -> value.contains(keyword));
+  }
+
+  private String firstOutputField(Map<String, Object> format) {
+    Object outputFields = format.get("outputFields");
+    if (outputFields instanceof List<?> fields) {
+      return fields.stream()
+        .filter(String.class::isInstance)
+        .map(String.class::cast)
+        .filter(field -> !field.isBlank())
+        .findFirst()
+        .orElse("rows");
+    }
+    return "rows";
   }
 }

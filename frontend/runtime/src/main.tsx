@@ -51,14 +51,6 @@ type CommunicationDefinition = {
   sampleRows?: Array<Record<string, unknown>>;
 };
 
-type CommunicationFormat = {
-  id: string;
-  name: string;
-  inputFields?: string[];
-  outputFields?: string[];
-  sampleRows: Array<Record<string, unknown>>;
-};
-
 type ScreenComponent = {
   id: string;
   type: 'Text' | 'Input' | 'Select' | 'Checkbox' | 'DatePicker' | 'Button' | 'AgGrid';
@@ -306,7 +298,7 @@ function DynamicRenderer({
           return (
             <div key={c.id} style={common} className="ag-theme-quartz">
               <AgGridReact
-                rowData={gridRows[c.id] ?? c.props?.rowData ?? []}
+                rowData={gridRows[c.id] ?? []}
                 columnDefs={getGridColumnDefs(c.props)}
                 defaultColDef={{
                   flex: 1,
@@ -331,7 +323,6 @@ function App() {
   const [menus, setMenus] = useState<MenuItem[]>([]);
   const [components, setComponents] = useState<ScreenComponent[]>([]);
   const [communications, setCommunications] = useState<CommunicationDefinition[]>([]);
-  const [communicationFormats, setCommunicationFormats] = useState<CommunicationFormat[]>([]);
   const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
   const [gridRows, setGridRows] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [activeMenu, setActiveMenu] = useState<MenuItem | null>(null);
@@ -344,17 +335,12 @@ function App() {
     setMenus(menuRes.data);
   };
 
-  const loadCommunicationFormats = async () => {
-    const formatRes = await axios.get('http://localhost:8080/api/communications/formats');
-    setCommunicationFormats(formatRes.data);
-  };
-
   const onLogin = async (values: { username: string; password: string }) => {
     const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
     const nextToken = loginRes.data.token;
     axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
     setToken(nextToken);
-    await Promise.all([loadMenus(), loadCommunicationFormats()]);
+    await loadMenus();
   };
 
   const loadScreenForMenu = async (item: MenuItem) => {
@@ -414,10 +400,6 @@ function App() {
       return;
     }
 
-    const format = communicationFormats.find(
-      (item) => item.id === (action.formatId || action.id),
-    );
-
     const input = Object.fromEntries(
       action.inputBindings.map((binding) => [
         binding.field,
@@ -428,10 +410,7 @@ function App() {
     try {
       const res = await axios.post(
         `http://localhost:8080/api/communications/${action.formatId || action.id}/execute`,
-        {
-          input,
-          sampleRows: format?.sampleRows ?? action.sampleRows ?? [],
-        },
+        input,
       );
       updateGridRows((prev) => {
         const next = { ...prev };

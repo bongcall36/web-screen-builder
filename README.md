@@ -52,10 +52,30 @@ Example communication:
 {
   "id": "searchUsers",
   "name": "Search Users",
+  "formatId": "searchUsers",
   "triggerComponentId": "button1",
   "inputBindings": [{ "field": "keyword", "componentId": "input1" }],
-  "outputBindings": [{ "field": "rows", "componentId": "grid1" }],
-  "sampleRows": [{ "id": 1, "name": "Alice" }]
+  "outputBindings": [{ "field": "rows", "componentId": "grid1" }]
+}
+```
+
+When a runtime `Button` connected by `triggerComponentId` is clicked, the runtime posts only
+the bound input field object to the server-side action id:
+
+```http
+POST /api/communications/searchUsers/execute
+```
+
+```json
+{ "keyword": "Alice" }
+```
+
+The response is only the output field object. Runtime maps each configured `outputBindings.field`
+to the bound output component:
+
+```json
+{
+  "rows": [{ "id": 1, "name": "Alice" }]
 }
 ```
 
@@ -63,9 +83,11 @@ Example communication:
 - `POST /api/auth/login`
 - `GET /api/menus`
 - `POST /api/menus`
+- `DELETE /api/menus/{menuId}`
 - `GET /api/screens`
 - `GET /api/screens/{screenId}`
 - `POST /api/screens`
+- `DELETE /api/screens/{screenId}`
 - `GET /api/communications/formats`
 - `POST /api/communications/formats`
 - `POST /api/communications/{actionId}/execute`

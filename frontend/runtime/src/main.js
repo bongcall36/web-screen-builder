@@ -153,7 +153,7 @@ function DynamicRenderer({ components, inputValues, gridRows, onInputChange, onA
                 return (_jsx("div", { style: common, children: _jsx(Button, { type: "primary", onClick: () => onAction(c.id), style: { width: '100%', height: '100%' }, children: c.props?.text ?? 'Button' }) }, c.id));
             }
             if (c.type === 'AgGrid') {
-                return (_jsx("div", { style: common, className: "ag-theme-quartz", children: _jsx(AgGridReact, { rowData: gridRows[c.id] ?? c.props?.rowData ?? [], columnDefs: getGridColumnDefs(c.props), defaultColDef: {
+                return (_jsx("div", { style: common, className: "ag-theme-quartz", children: _jsx(AgGridReact, { rowData: gridRows[c.id] ?? [], columnDefs: getGridColumnDefs(c.props), defaultColDef: {
                             flex: 1,
                             minWidth: 80,
                             resizable: true,
@@ -167,7 +167,6 @@ function App() {
     const [menus, setMenus] = useState([]);
     const [components, setComponents] = useState([]);
     const [communications, setCommunications] = useState([]);
-    const [communicationFormats, setCommunicationFormats] = useState([]);
     const [inputValues, setInputValues] = useState({});
     const [gridRows, setGridRows] = useState({});
     const [activeMenu, setActiveMenu] = useState(null);
@@ -177,16 +176,12 @@ function App() {
         const menuRes = await axios.get('http://localhost:8080/api/menus');
         setMenus(menuRes.data);
     };
-    const loadCommunicationFormats = async () => {
-        const formatRes = await axios.get('http://localhost:8080/api/communications/formats');
-        setCommunicationFormats(formatRes.data);
-    };
     const onLogin = async (values) => {
         const loginRes = await axios.post('http://localhost:8080/api/auth/login', values);
         const nextToken = loginRes.data.token;
         axios.defaults.headers.common.Authorization = `Bearer ${nextToken}`;
         setToken(nextToken);
-        await Promise.all([loadMenus(), loadCommunicationFormats()]);
+        await loadMenus();
     };
     const loadScreenForMenu = async (item) => {
         if (!item.screenId) {
@@ -233,16 +228,12 @@ function App() {
             message.warning('No communication action is connected to this button.');
             return;
         }
-        const format = communicationFormats.find((item) => item.id === (action.formatId || action.id));
         const input = Object.fromEntries(action.inputBindings.map((binding) => [
             binding.field,
             actionInputValues[binding.componentId] ?? '',
         ]));
         try {
-            const res = await axios.post(`http://localhost:8080/api/communications/${action.formatId || action.id}/execute`, {
-                input,
-                sampleRows: format?.sampleRows ?? action.sampleRows ?? [],
-            });
+            const res = await axios.post(`http://localhost:8080/api/communications/${action.formatId || action.id}/execute`, input);
             updateGridRows((prev) => {
                 const next = { ...prev };
                 action.outputBindings.forEach((binding) => {

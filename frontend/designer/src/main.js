@@ -322,7 +322,7 @@ function nextScreenId(screens) {
     }
     return screenId;
 }
-function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridColumnDataTypeChange, onGridAddColumn, onGridRemoveColumn, onGridSaveRows, onButtonTextChange, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
+function CanvasPreview({ item, }) {
     if (item.type === 'Text') {
         return (_jsx(Typography.Text, { style: {
                 display: 'flex',
@@ -358,18 +358,46 @@ function CanvasPreview({ item, columnNameDrafts, onGridColumnDraftChange, onGrid
                 border: '1px solid #d9d9d9',
                 borderRadius: 6,
                 background: '#fff',
-            }, children: [_jsxs(Space, { size: 4, wrap: true, style: { padding: 4, borderBottom: '1px solid #f0f0f0' }, children: [_jsx(Button, { size: "small", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridAddColumn(item.id), children: "Add column" }), _jsx(Button, { size: "small", type: "link", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridAddRow(item.id), style: { paddingInline: 4 }, children: "Add row" }), _jsx(Button, { size: "small", type: "primary", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridSaveRows(item.id), children: "Save rows" })] }), _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }, children: [_jsx("thead", { children: _jsxs("tr", { children: [cols.map((col) => (_jsx("th", { style: {
+            }, children: [_jsx(Space, { style: { width: '100%', padding: 4, borderBottom: '1px solid #f0f0f0' }, children: _jsx(Typography.Text, { style: { fontSize: 12 }, strong: true, children: item.id }) }), _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }, children: [_jsx("thead", { children: _jsx("tr", { children: cols.map((col) => (_jsx("th", { style: {
+                                        borderBottom: '1px solid #f0f0f0',
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        padding: 4,
+                                        textAlign: 'left',
+                                    }, children: col.field }, col.field))) }) }), _jsx("tbody", { children: rows.slice(0, 5).map((row, rowIndex) => (_jsx("tr", { children: cols.map((col) => {
+                                    const field = col.field ?? '';
+                                    return (_jsx("td", { style: {
+                                            borderBottom: '1px solid #f5f5f5',
+                                            fontSize: 12,
+                                            padding: 4,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }, children: String(row[field] ?? '') }, field));
+                                }) }, rowIndex))) })] })] }));
+    }
+    return null;
+}
+function GridEditor({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridColumnDataTypeChange, onGridAddColumn, onGridRemoveColumn, onGridSaveRows, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
+    const cols = getVisibleGridColumns(item);
+    const rows = getGridRows(item);
+    return (_jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsxs(Space, { size: 8, wrap: true, children: [_jsx(Button, { size: "small", onClick: () => onGridAddColumn(item.id), children: "Add column" }), _jsx(Button, { size: "small", onClick: () => onGridAddRow(item.id), children: "Add row" }), _jsx(Button, { size: "small", type: "primary", onClick: () => onGridSaveRows(item.id), children: "Save rows" })] }), _jsx("div", { style: {
+                    maxHeight: 520,
+                    overflow: 'auto',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 6,
+                    background: '#fff',
+                }, children: _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }, children: [_jsx("thead", { children: _jsxs("tr", { children: [cols.map((col) => (_jsx("th", { style: {
                                             borderBottom: '1px solid #f0f0f0',
                                             fontSize: 12,
                                             fontWeight: 600,
                                             padding: 4,
                                             textAlign: 'left',
-                                        }, children: _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { size: "small", value: columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field, onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridColumnDraftChange(item.id, col.field ?? '', e.target.value), onBlur: () => onGridColumnChange(item.id, col.field ?? ''), onPressEnter: (e) => e.currentTarget.blur() }), _jsx("div", { onPointerDown: (e) => e.stopPropagation(), children: _jsx(Select, { size: "small", value: getColumnDataType(col), options: GRID_DATA_TYPE_OPTIONS, onChange: (value) => onGridColumnDataTypeChange(item.id, col.field ?? '', value), style: { width: 96 } }) }), _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove column", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveColumn(item.id, col.field ?? '') })] }) }, col.field))), _jsx("th", { style: { borderBottom: '1px solid #f0f0f0', width: 42 } })] }) }), _jsx("tbody", { children: rows.map((row, rowIndex) => (_jsxs("tr", { children: [cols.map((col) => {
+                                            minWidth: 220,
+                                        }, children: _jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { size: "small", value: columnNameDrafts[columnDraftKey(item.id, col.field ?? '')] ?? col.field, onChange: (e) => onGridColumnDraftChange(item.id, col.field ?? '', e.target.value), onBlur: () => onGridColumnChange(item.id, col.field ?? ''), onPressEnter: (e) => e.currentTarget.blur() }), _jsx(Select, { size: "small", value: getColumnDataType(col), options: GRID_DATA_TYPE_OPTIONS, onChange: (value) => onGridColumnDataTypeChange(item.id, col.field ?? '', value), style: { width: 96 } }), _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove column", onClick: () => onGridRemoveColumn(item.id, col.field ?? '') })] }) }, col.field))), _jsx("th", { style: { borderBottom: '1px solid #f0f0f0', width: 42 } })] }) }), _jsx("tbody", { children: rows.map((row, rowIndex) => (_jsxs("tr", { children: [cols.map((col) => {
                                         const field = col.field ?? '';
-                                        return (_jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Input, { size: "small", value: String(row[field] ?? ''), onPointerDown: (e) => e.stopPropagation(), onChange: (e) => onGridCellChange(item.id, rowIndex, field, e.target.value) }) }, field));
-                                    }), _jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove row", onPointerDown: (e) => e.stopPropagation(), onClick: () => onGridRemoveRow(item.id, rowIndex) }) })] }, rowIndex))) })] })] }));
-    }
-    return null;
+                                        return (_jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Input, { size: "small", value: String(row[field] ?? ''), onChange: (e) => onGridCellChange(item.id, rowIndex, field, e.target.value) }) }, field));
+                                    }), _jsx("td", { style: { padding: 3, verticalAlign: 'top' }, children: _jsx(Button, { size: "small", type: "text", danger: true, icon: _jsx(DeleteOutlined, {}), "aria-label": "Remove row", onClick: () => onGridRemoveRow(item.id, rowIndex) }) })] }, rowIndex))) })] }) })] }));
 }
 const TOOLBOX = [
     { type: 'Text', title: 'Text', description: 'Static label' },
@@ -445,7 +473,6 @@ function App() {
     const canvasInnerRef = useRef(null);
     const dragInfoRef = useRef(null);
     const resizeInfoRef = useRef(null);
-    const serialized = useMemo(() => JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2), [components, communications]);
     const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
     const selectedFormat = communicationFormats.find((format) => format.id === selectedFormatId) ??
         communicationFormats[0];
@@ -531,6 +558,80 @@ function App() {
         }
         setOpenSettings([]);
         message.info('Loaded menu node. Folder menus do not open a screen.');
+    };
+    const resetDesignerToBlank = (nextScreens = screens) => {
+        const screenId = nextScreenId(nextScreens);
+        const name = `Screen ${screenId.replace('screen-', '')}`;
+        form.setFieldsValue({
+            screenId,
+            name,
+            menuId: `menu-${screenId}`,
+            menuName: name,
+            menuParentId: '',
+            menuTargetType: 'screen',
+            menuOpenMode: 'inline',
+        });
+        setEditingMenuId(`menu-${screenId}`);
+        setComponents([]);
+        setCommunications([]);
+        setColumnNameDrafts({});
+        setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+        setJsonTab('visual');
+    };
+    const deleteMenu = async (menuId) => {
+        try {
+            await axios.delete(`http://localhost:8080/api/menus/${menuId}`);
+            if (editingMenuId === menuId) {
+                form.setFieldsValue({
+                    menuId: `menu-${form.getFieldValue('screenId')}`,
+                    menuName: form.getFieldValue('name'),
+                    menuParentId: '',
+                    menuTargetType: 'screen',
+                    menuOpenMode: 'inline',
+                });
+                setEditingMenuId(`menu-${form.getFieldValue('screenId')}`);
+            }
+            await loadDesignerMetadata();
+            message.success(`Deleted menu ${menuId}`);
+        }
+        catch {
+            message.error(`Menu delete failed: ${menuId}`);
+        }
+    };
+    const confirmDeleteMenu = (menuId) => {
+        Modal.confirm({
+            title: 'Delete menu?',
+            content: `Menu ${menuId} will be removed. The linked screen data will remain.`,
+            okText: 'Delete',
+            okButtonProps: { danger: true },
+            onOk: () => deleteMenu(menuId),
+        });
+    };
+    const deleteScreen = async (screenId) => {
+        try {
+            const linkedMenus = menus.filter((menu) => menu.screenId === screenId);
+            await axios.delete(`http://localhost:8080/api/screens/${screenId}`);
+            await Promise.all(linkedMenus.map((menu) => axios.delete(`http://localhost:8080/api/menus/${menu.id}`)));
+            const nextScreens = screens.filter((screen) => screen.screenId !== screenId);
+            resetDesignerToBlank(nextScreens);
+            await loadDesignerMetadata();
+            message.success(`Deleted screen ${screenId}`);
+        }
+        catch {
+            message.error(`Screen delete failed: ${screenId}`);
+        }
+    };
+    const confirmDeleteScreen = (screenId) => {
+        const linkedCount = menus.filter((menu) => menu.screenId === screenId).length;
+        Modal.confirm({
+            title: 'Delete screen?',
+            content: linkedCount > 0
+                ? `Screen ${screenId} and ${linkedCount} linked menu item(s) will be removed.`
+                : `Screen ${screenId} will be removed.`,
+            okText: 'Delete',
+            okButtonProps: { danger: true },
+            onOk: () => deleteScreen(screenId),
+        });
     };
     const bumpZ = useCallback((id) => {
         setComponents((prev) => {
@@ -1505,7 +1606,12 @@ function App() {
                             padding: 16,
                             overflow: 'auto',
                             height: 'calc(100vh - 56px)',
-                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screens" }), _jsx(Button, { size: "small", type: "primary", onClick: newScreen, children: "New" })] }), _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' } }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 10 }, children: "Menus" }), _jsxs("div", { style: {
+                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screens" }), _jsx(Button, { size: "small", type: "primary", onClick: newScreen, children: "New" })] }), _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), actions: [
+                                        _jsx(Button, { size: "small", danger: true, type: "text", icon: _jsx(DeleteOutlined, {}), "aria-label": "Delete screen", onClick: (e) => {
+                                                e.stopPropagation();
+                                                confirmDeleteScreen(screen.screenId);
+                                            } }, "delete"),
+                                    ], style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' } }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 10 }, children: "Menus" }), _jsxs("div", { style: {
                                     marginBottom: 20,
                                     background: '#fff',
                                     border: '1px solid #e5e7eb',
@@ -1565,10 +1671,13 @@ function App() {
                                             {
                                                 key: 'menu',
                                                 label: (_jsxs(Space, { size: 8, children: [_jsx(Typography.Text, { strong: true, children: "Menu settings" }), _jsxs(Typography.Text, { type: "secondary", children: [watchedMenuName, " (", watchedMenuId, ")"] })] })),
-                                                extra: (_jsx(Button, { size: "small", onClick: (e) => {
-                                                        e.stopPropagation();
-                                                        saveMenuOnly();
-                                                    }, children: "Save menu" })),
+                                                extra: (_jsxs(Space, { size: 6, children: [_jsx(Button, { size: "small", danger: true, onClick: (e) => {
+                                                                e.stopPropagation();
+                                                                confirmDeleteMenu(form.getFieldValue('menuId'));
+                                                            }, children: "Delete menu" }), _jsx(Button, { size: "small", onClick: (e) => {
+                                                                e.stopPropagation();
+                                                                saveMenuOnly();
+                                                            }, children: "Save menu" })] })),
                                                 children: (_jsxs("div", { style: {
                                                         display: 'flex',
                                                         alignItems: 'flex-start',
@@ -1597,10 +1706,13 @@ function App() {
                                             {
                                                 key: 'screen',
                                                 label: (_jsxs(Space, { size: 8, children: [_jsx(Typography.Text, { strong: true, children: "Screen settings" }), _jsxs(Typography.Text, { type: "secondary", children: [watchedScreenName, " (", watchedScreenId, ")"] })] })),
-                                                extra: (_jsx(Button, { size: "small", type: "primary", onClick: (e) => {
-                                                        e.stopPropagation();
-                                                        save();
-                                                    }, children: "Save screen" })),
+                                                extra: (_jsxs(Space, { size: 6, children: [_jsx(Button, { size: "small", danger: true, onClick: (e) => {
+                                                                e.stopPropagation();
+                                                                confirmDeleteScreen(form.getFieldValue('screenId'));
+                                                            }, children: "Delete screen" }), _jsx(Button, { size: "small", type: "primary", onClick: (e) => {
+                                                                e.stopPropagation();
+                                                                save();
+                                                            }, children: "Save screen" })] })),
                                                 children: (_jsxs("div", { style: {
                                                         display: 'flex',
                                                         alignItems: 'flex-start',
@@ -1671,7 +1783,7 @@ function App() {
                                                                         position: 'relative',
                                                                         height: '100%',
                                                                         width: '100%',
-                                                                    }, children: _jsx("div", { style: { width: '100%', height: '100%', minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c, columnNameDrafts: columnNameDrafts, onGridColumnDraftChange: updateGridColumnDraft, onGridColumnChange: updateGridColumn, onGridColumnDataTypeChange: updateGridColumnDataType, onGridAddColumn: addGridColumn, onGridRemoveColumn: removeGridColumn, onGridSaveRows: saveGridRowsToLinkedFormat, onButtonTextChange: updateButtonText, onGridCellChange: updateGridCell, onGridAddRow: addGridRow, onGridRemoveRow: removeGridRow }) }) }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
+                                                                    }, children: _jsx("div", { style: { width: '100%', height: '100%', minWidth: 0, minHeight: 0 }, children: _jsx(CanvasPreview, { item: c }) }) }), _jsx("div", { "aria-label": "Resize", "data-resize-handle": true, onPointerDown: (e) => onResizePointerDown(e, c), onPointerMove: onResizePointerMove, onPointerUp: onResizePointerUp, onPointerCancel: onResizePointerUp, style: {
                                                                         position: 'absolute',
                                                                         right: 2,
                                                                         bottom: 2,
@@ -1689,21 +1801,6 @@ function App() {
                                         key: 'json',
                                         label: 'JSON',
                                         children: (_jsxs(Space, { direction: "vertical", style: { width: '100%' }, size: 12, children: [_jsx(Input.TextArea, { rows: 14, value: jsonDraft, onChange: (e) => setJsonDraft(e.target.value), style: { fontFamily: 'monospace', fontSize: 12 } }), _jsxs(Space, { children: [_jsx(Button, { onClick: syncJsonDraftFromComponents, children: "Reset from canvas" }), _jsx(Button, { type: "primary", onClick: applyJsonDraft, children: "Apply to canvas" })] })] })),
-                                    },
-                                ] }), _jsx(Collapse, { style: { marginTop: 16 }, items: [
-                                    {
-                                        key: 'readonly-json',
-                                        label: 'Live JSON preview (read-only)',
-                                        children: (_jsx("pre", { style: {
-                                                margin: 0,
-                                                maxHeight: 220,
-                                                overflow: 'auto',
-                                                fontSize: 12,
-                                                background: '#0f172a',
-                                                color: '#dbeafe',
-                                                padding: 12,
-                                                borderRadius: 8,
-                                            }, children: serialized })),
                                     },
                                 ] })] }), _jsxs(Sider, { width: 400, theme: "light", style: {
                             borderLeft: '1px solid #d9dee7',
@@ -1765,7 +1862,7 @@ function App() {
                                                                                         if (dropped)
                                                                                             bindOutputComponent(comm.id, index, dropped.id);
                                                                                     }, style: { ...dropStyle, flex: 1 }, children: outputBinding.componentId || 'Drop AgGrid here' }), _jsx(Button, { disabled: !outputBinding.componentId, onClick: () => clearOutputComponent(comm.id, index), style: { height: 32 }, children: "Unlink" })] })] }, `output-${index}`))) })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Sample Output Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(selectedFormat.sampleRows, null, 2), onBlur: (e) => updateCommunicationSampleRows(selectedFormat.id, e.target.value), style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, `${comm.id}-${selectedFormat.id}-${JSON.stringify(selectedFormat.sampleRows)}`)] })] }) }, comm.id));
-                                    }), _jsx(Modal, { open: !!editingComponent, title: editingComponent ? `${editingComponent.type} Component` : 'Component', width: 720, footer: null, destroyOnClose: true, onCancel: () => setEditingComponentId(null), children: editingComponent && (_jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "ID", defaultValue: editingComponent.id, onBlur: (e) => updateComponentId(editingComponent.id, e.target.value), onPressEnter: (e) => e.currentTarget.blur() }, editingComponent.id), editingComponent.type === 'Text' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'Input' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Select' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, {
+                                    }), _jsx(Modal, { open: !!editingComponent, title: editingComponent ? `${editingComponent.type} Component` : 'Component', width: editingComponent?.type === 'AgGrid' ? 1080 : 720, footer: null, destroyOnClose: true, onCancel: () => setEditingComponentId(null), children: editingComponent && (_jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "ID", defaultValue: editingComponent.id, onBlur: (e) => updateComponentId(editingComponent.id, e.target.value), onPressEnter: (e) => e.currentTarget.blur() }, editingComponent.id), editingComponent.type === 'Text' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'Input' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Select' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, {
                                                                 placeholder: e.target.value,
                                                             }) }), _jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Options" }), _jsx(Button, { size: "small", onClick: () => addSelectOption(editingComponent.id), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%' }, children: getSelectOptions(editingComponent).map((option, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "label", value: option.label, onChange: (e) => updateSelectOption(editingComponent.id, index, {
                                                                             label: e.target.value,
@@ -1773,31 +1870,42 @@ function App() {
                                                                             value: e.target.value,
                                                                         }) }), _jsx(Button, { danger: true, disabled: getSelectOptions(editingComponent).length === 1, onClick: () => removeSelectOption(editingComponent.id, index), children: "Delete" })] }, `${option.value}-${index}`))) })] })), editingComponent.type === 'Checkbox' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Label", value: editingComponent.props?.label ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { label: e.target.value }) }), _jsx(Checkbox, { checked: Boolean(editingComponent.props?.checked), onChange: (e) => updateComponentProps(editingComponent.id, {
                                                                 checked: e.target.checked,
-                                                            }), children: "Checked" })] })), editingComponent.type === 'DatePicker' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Button' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'AgGrid' && (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Typography.Text, { strong: true, children: "Column Definitions JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(editingComponent.props?.columnDefs ?? [], null, 2), onBlur: (e) => {
-                                                                try {
-                                                                    const parsed = JSON.parse(e.target.value);
-                                                                    if (!Array.isArray(parsed)) {
-                                                                        message.error('Column definitions must be a JSON array.');
-                                                                        return;
-                                                                    }
-                                                                    updateComponentProps(editingComponent.id, { columnDefs: parsed });
-                                                                }
-                                                                catch {
-                                                                    message.error('Invalid column definitions JSON.');
-                                                                }
-                                                            }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`), _jsx(Typography.Text, { strong: true, children: "Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(editingComponent.props?.rowData ?? [], null, 2), onBlur: (e) => {
-                                                                try {
-                                                                    const parsed = JSON.parse(e.target.value);
-                                                                    if (!Array.isArray(parsed)) {
-                                                                        message.error('Rows must be a JSON array.');
-                                                                        return;
-                                                                    }
-                                                                    updateComponentProps(editingComponent.id, { rowData: parsed });
-                                                                }
-                                                                catch {
-                                                                    message.error('Invalid rows JSON.');
-                                                                }
-                                                            }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`)] }))] })) }), _jsx(Modal, { open: formatsModalOpen, title: "Communication Formats", width: 920, footer: null, destroyOnClose: true, onCancel: () => setFormatsModalOpen(false), children: _jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, align: "center", children: [_jsx(Select, { placeholder: "Select format", value: selectedFormat?.id, options: communicationFormats.map((format) => ({
+                                                            }), children: "Checked" })] })), editingComponent.type === 'DatePicker' && (_jsx(Input, { addonBefore: "Placeholder", value: editingComponent.props?.placeholder ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { placeholder: e.target.value }) })), editingComponent.type === 'Button' && (_jsx(Input, { addonBefore: "Text", value: editingComponent.props?.text ?? '', onChange: (e) => updateComponentProps(editingComponent.id, { text: e.target.value }) })), editingComponent.type === 'AgGrid' && (_jsx(Tabs, { items: [
+                                                        {
+                                                            key: 'table',
+                                                            label: 'Table editor',
+                                                            children: (_jsx(GridEditor, { item: editingComponent, columnNameDrafts: columnNameDrafts, onGridColumnDraftChange: updateGridColumnDraft, onGridColumnChange: updateGridColumn, onGridColumnDataTypeChange: updateGridColumnDataType, onGridAddColumn: addGridColumn, onGridRemoveColumn: removeGridColumn, onGridSaveRows: saveGridRowsToLinkedFormat, onGridCellChange: updateGridCell, onGridAddRow: addGridRow, onGridRemoveRow: removeGridRow })),
+                                                        },
+                                                        {
+                                                            key: 'json',
+                                                            label: 'JSON',
+                                                            children: (_jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Typography.Text, { strong: true, children: "Column Definitions JSON" }), _jsx(Input.TextArea, { rows: 7, defaultValue: JSON.stringify(editingComponent.props?.columnDefs ?? [], null, 2), onBlur: (e) => {
+                                                                            try {
+                                                                                const parsed = JSON.parse(e.target.value);
+                                                                                if (!Array.isArray(parsed)) {
+                                                                                    message.error('Column definitions must be a JSON array.');
+                                                                                    return;
+                                                                                }
+                                                                                updateComponentProps(editingComponent.id, { columnDefs: parsed });
+                                                                            }
+                                                                            catch {
+                                                                                message.error('Invalid column definitions JSON.');
+                                                                            }
+                                                                        }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-columns-${JSON.stringify(editingComponent.props?.columnDefs)}`), _jsx(Typography.Text, { strong: true, children: "Rows JSON" }), _jsx(Input.TextArea, { rows: 9, defaultValue: JSON.stringify(editingComponent.props?.rowData ?? [], null, 2), onBlur: (e) => {
+                                                                            try {
+                                                                                const parsed = JSON.parse(e.target.value);
+                                                                                if (!Array.isArray(parsed)) {
+                                                                                    message.error('Rows must be a JSON array.');
+                                                                                    return;
+                                                                                }
+                                                                                updateComponentProps(editingComponent.id, { rowData: parsed });
+                                                                            }
+                                                                            catch {
+                                                                                message.error('Invalid rows JSON.');
+                                                                            }
+                                                                        }, style: { fontFamily: 'monospace', fontSize: 12 } }, `${editingComponent.id}-rows-${JSON.stringify(editingComponent.props?.rowData)}`)] })),
+                                                        },
+                                                    ] }))] })) }), _jsx(Modal, { open: formatsModalOpen, title: "Communication Formats", width: 920, footer: null, destroyOnClose: true, onCancel: () => setFormatsModalOpen(false), children: _jsxs(Space, { direction: "vertical", size: 12, style: { width: '100%' }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, align: "center", children: [_jsx(Select, { placeholder: "Select format", value: selectedFormat?.id, options: communicationFormats.map((format) => ({
                                                                 label: `${format.name || format.id} (${format.id})`,
                                                                 value: format.id,
                                                             })), onChange: setSelectedFormatId, style: { flex: 1, minWidth: 280 } }), _jsx(Button, { type: "primary", onClick: addCommunicationFormat, children: "Add format" })] }), selectedFormat ? (_jsx("div", { style: { maxHeight: 640, overflow: 'auto' }, children: _jsx(Card, { size: "small", title: selectedFormat.id, extra: _jsxs(Space, { size: 4, children: [_jsx(Button, { size: "small", type: "primary", onClick: () => saveCommunicationFormat(selectedFormat), children: "Save" }), _jsx(Button, { size: "small", danger: true, onClick: () => deleteCommunicationFormat(selectedFormat.id), children: "Delete" })] }), children: _jsxs(Space, { direction: "vertical", size: 8, style: { width: '100%' }, children: [_jsx(Input, { addonBefore: "Name", value: selectedFormat.name, onChange: (e) => updateCommunicationFormat(selectedFormat.id, { name: e.target.value }) }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Inputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(selectedFormat.id, 'inputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: selectedFormat.inputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(selectedFormat.id, 'inputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: selectedFormat.inputFields.length === 1, onClick: () => removeCommunicationFormatField(selectedFormat.id, 'inputFields', index), children: "Delete" })] }, `format-input-${index}`))) })] }), _jsxs("div", { children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between' }, children: [_jsx(Typography.Text, { strong: true, children: "Outputs" }), _jsx(Button, { size: "small", onClick: () => addCommunicationFormatField(selectedFormat.id, 'outputFields'), children: "Add" })] }), _jsx(Space, { direction: "vertical", size: 6, style: { width: '100%', marginTop: 6 }, children: selectedFormat.outputFields.map((field, index) => (_jsxs(Space.Compact, { style: { width: '100%' }, children: [_jsx(Input, { value: field, onChange: (e) => updateCommunicationFormatField(selectedFormat.id, 'outputFields', index, e.target.value) }), _jsx(Button, { danger: true, disabled: selectedFormat.outputFields.length === 1, onClick: () => removeCommunicationFormatField(selectedFormat.id, 'outputFields', index), children: "Delete" })] }, `format-output-${index}`))) })] }), _jsxs("div", { children: [_jsx(Typography.Text, { strong: true, children: "Sample Output Rows JSON" }), _jsx(Input.TextArea, { rows: 5, defaultValue: JSON.stringify(selectedFormat.sampleRows, null, 2), onBlur: (e) => updateCommunicationSampleRows(selectedFormat.id, e.target.value), style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, `format-${selectedFormat.id}-${JSON.stringify(selectedFormat.sampleRows)}`)] })] }) }, selectedFormat.id) })) : (_jsx(Typography.Text, { type: "secondary", children: "No formats. Add one to start." }))] }) }), _jsx("datalist", { id: "communication-format-ids", children: communicationFormats.map((format) => (_jsx("option", { value: format.id }, format.id))) })] })] })] })] }));

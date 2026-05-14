@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -92,6 +93,19 @@ public class ScreenController {
       return ResponseEntity.ok(Map.of("screenId", screenId, "components", List.of(), "communications", List.of()));
     }
     return ResponseEntity.ok(sampleScreen());
+  }
+
+  @DeleteMapping("/{screenId}")
+  public ResponseEntity<?> delete(@PathVariable String screenId) {
+    if (!isValidId(screenId)) {
+      return ResponseEntity.badRequest().body(Map.of("error", "invalid screenId"));
+    }
+    try {
+      Files.deleteIfExists(screenPath(screenId));
+      return ResponseEntity.ok(Map.of("ok", true));
+    } catch (IOException e) {
+      return ResponseEntity.internalServerError().body(Map.of("error", "could not delete screen"));
+    }
   }
 
   private void readScreenSummary(Path path, List<Map<String, Object>> rows) {

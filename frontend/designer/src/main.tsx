@@ -1,18 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
-  Collapse,
   DatePicker,
+  Divider,
   Form,
   Input,
+  InputNumber,
   Layout,
   List,
   Modal,
   Select,
   Space,
+  Switch,
   Tabs,
   Tooltip,
   Tree,
@@ -21,12 +24,22 @@ import {
 } from 'antd';
 import {
   CalendarOutlined,
+  BarChartOutlined,
   CheckSquareOutlined,
   DeleteOutlined,
   EditOutlined,
+  FieldNumberOutlined,
+  FileTextOutlined,
   FontSizeOutlined,
   FormOutlined,
+  HeatMapOutlined,
+  LineChartOutlined,
+  MinusOutlined,
+  NotificationOutlined,
   OneToOneOutlined,
+  PieChartOutlined,
+  ProfileOutlined,
+  SwitcherOutlined,
   TableOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
@@ -39,11 +52,21 @@ const { Header, Content, Sider } = Layout;
 const SCREEN_COMPONENT_TYPES = [
   'Text',
   'Input',
+  'TextArea',
+  'NumberInput',
   'Select',
   'Checkbox',
+  'Switch',
   'DatePicker',
   'Button',
+  'Divider',
+  'Alert',
   'AgGrid',
+  'BarChart',
+  'LineChart',
+  'PieChart',
+  'DataMap',
+  'Card',
 ] as const;
 
 type ScreenComponentType = (typeof SCREEN_COMPONENT_TYPES)[number];
@@ -55,6 +78,7 @@ const GRID = 8;
 type ComponentLayout = { x: number; y: number; width?: number; height?: number };
 type GridColumnDef = { field?: string; dataType?: GridDataType };
 type GridRow = Record<string, string | number | boolean | null>;
+type ChartDatum = { label: string; value: number };
 type CommunicationDefinition = {
   id: string;
   name: string;
@@ -90,16 +114,33 @@ function defaultSize(type: ScreenComponentType): { w: number; h: number } {
       return { w: 200, h: 32 };
     case 'Input':
       return { w: 256, h: 40 };
+    case 'TextArea':
+      return { w: 320, h: 96 };
+    case 'NumberInput':
+      return { w: 180, h: 40 };
     case 'Select':
       return { w: 220, h: 40 };
     case 'Checkbox':
+      return { w: 160, h: 32 };
+    case 'Switch':
       return { w: 160, h: 32 };
     case 'DatePicker':
       return { w: 180, h: 40 };
     case 'Button':
       return { w: 160, h: 40 };
+    case 'Divider':
+      return { w: 360, h: 32 };
+    case 'Alert':
+      return { w: 360, h: 72 };
     case 'AgGrid':
       return { w: 400, h: 200 };
+    case 'BarChart':
+    case 'LineChart':
+    case 'PieChart':
+    case 'DataMap':
+      return { w: 320, h: 220 };
+    case 'Card':
+      return { w: 240, h: 140 };
     default:
       return { w: 160, h: 120 };
   }
@@ -111,16 +152,33 @@ function minSize(type: ScreenComponentType): { w: number; h: number } {
       return { w: 80, h: 24 };
     case 'Input':
       return { w: 120, h: 32 };
+    case 'TextArea':
+      return { w: 180, h: 64 };
+    case 'NumberInput':
+      return { w: 120, h: 32 };
     case 'Select':
       return { w: 120, h: 32 };
     case 'Checkbox':
+      return { w: 120, h: 24 };
+    case 'Switch':
       return { w: 120, h: 24 };
     case 'DatePicker':
       return { w: 140, h: 32 };
     case 'Button':
       return { w: 120, h: 32 };
+    case 'Divider':
+      return { w: 160, h: 24 };
+    case 'Alert':
+      return { w: 220, h: 56 };
     case 'AgGrid':
       return { w: 200, h: 120 };
+    case 'BarChart':
+    case 'LineChart':
+    case 'PieChart':
+    case 'DataMap':
+      return { w: 200, h: 140 };
+    case 'Card':
+      return { w: 160, h: 96 };
     default:
       return { w: 80, h: 40 };
   }
@@ -147,6 +205,8 @@ type ScreenComponent = {
 type ScreenSummary = {
   screenId: string;
   name: string;
+  allowRuntimePersonalization?: boolean;
+  isInitialScreen?: boolean;
 };
 
 type MenuSummary = {
@@ -158,46 +218,30 @@ type MenuSummary = {
   openMode?: 'inline' | 'popup';
 };
 
-const DEFAULT_COMPONENTS: ScreenComponent[] = [
-  {
-    id: 'input1',
-    type: 'Input',
-    layout: { x: 16, y: 16, width: 256, height: 40 },
-    props: { placeholder: 'Type keyword' },
-  },
-  {
-    id: 'button1',
-    type: 'Button',
-    layout: { x: 280, y: 16, width: 120, height: 40 },
-    props: { text: 'Search', actionId: 'searchUsers' },
-  },
-  {
-    id: 'grid1',
-    type: 'AgGrid',
-    layout: { x: 16, y: 72, width: 400, height: 200 },
-    props: {
-      columnDefs: [
-        { field: 'id', dataType: 'number' },
-        { field: 'name', dataType: 'string' },
-      ],
-      rowData: [
-        { id: 1, name: 'Alice' },
-        { id: 2, name: 'Bob' },
-      ],
-    },
-  },
-];
+type DesignerFormValues = {
+  screenId: string;
+  name: string;
+  allowRuntimePersonalization?: boolean;
+  isInitialScreen?: boolean;
+  menuId: string;
+  menuName: string;
+  menuParentId?: string;
+  menuTargetType?: 'screen' | 'folder';
+  menuOpenMode?: 'inline' | 'popup';
+};
 
-const DEFAULT_COMMUNICATIONS: CommunicationDefinition[] = [
-  {
-    id: 'searchUsers',
-    name: 'Search Users',
-    formatId: 'searchUsers',
-    triggerComponentId: 'button1',
-    inputBindings: [{ field: 'keyword', componentId: 'input1' }],
-    outputBindings: [{ field: 'rows', componentId: 'grid1' }],
-  },
-];
+type SettingsModalState =
+  | { type: 'menu'; mode: 'edit' | 'new-screen' | 'new-folder' }
+  | { type: 'screen' }
+  | null;
+
+const DEFAULT_SCREEN_ID = 'screen-1';
+const DEFAULT_SCREEN_NAME = 'Screen 1';
+const DEFAULT_MENU_ID = `menu-${DEFAULT_SCREEN_ID}`;
+
+const DEFAULT_COMPONENTS: ScreenComponent[] = [];
+
+const DEFAULT_COMMUNICATIONS: CommunicationDefinition[] = [];
 
 const DEFAULT_COMMUNICATION_FORMATS: CommunicationFormat[] = [
   {
@@ -222,6 +266,10 @@ function defaultPropsFor(type: ScreenComponentType): Record<string, unknown> {
       return { text: 'Label' };
     case 'Input':
       return { placeholder: 'Placeholder' };
+    case 'TextArea':
+      return { placeholder: 'Enter long text', rows: 3 };
+    case 'NumberInput':
+      return { placeholder: 'Number', min: 0, max: 100 };
     case 'Select':
       return {
         placeholder: 'Select',
@@ -232,15 +280,63 @@ function defaultPropsFor(type: ScreenComponentType): Record<string, unknown> {
       };
     case 'Checkbox':
       return { label: 'Checkbox', checked: false };
+    case 'Switch':
+      return { label: 'Enabled', checked: false };
     case 'DatePicker':
       return { placeholder: 'Select date' };
     case 'Button':
       return { text: 'Button' };
+    case 'Divider':
+      return { text: 'Section' };
+    case 'Alert':
+      return { message: 'Information', description: 'Helpful message for the user.', alertType: 'info' };
     case 'AgGrid':
       return {
         columnDefs: [],
         rowData: [],
       };
+    case 'BarChart':
+      return {
+        title: 'Sales by Region',
+        data: [
+          { label: 'North', value: 42 },
+          { label: 'East', value: 64 },
+          { label: 'West', value: 38 },
+        ],
+      };
+    case 'LineChart':
+      return {
+        title: 'Monthly Trend',
+        data: [
+          { label: 'Jan', value: 18 },
+          { label: 'Feb', value: 32 },
+          { label: 'Mar', value: 28 },
+          { label: 'Apr', value: 46 },
+        ],
+      };
+    case 'PieChart':
+      return {
+        title: 'Share',
+        data: [
+          { label: 'A', value: 45 },
+          { label: 'B', value: 30 },
+          { label: 'C', value: 25 },
+        ],
+      };
+    case 'DataMap':
+      return {
+        title: 'Data Map',
+        data: [
+          { label: 'A1', value: 8 },
+          { label: 'A2', value: 15 },
+          { label: 'B1', value: 22 },
+          { label: 'B2', value: 34 },
+          { label: 'C1', value: 41 },
+          { label: 'C2', value: 55 },
+        ],
+      };
+    case 'Card':
+      return { title: 'Total Users', value: '1,248', description: '+12% this month' };
     default:
       return {};
   }
@@ -266,12 +362,206 @@ function getGridRows(item: ScreenComponent): GridRow[] {
   return raw.filter((row): row is GridRow => typeof row === 'object' && row !== null);
 }
 
+function getChartData(props: Record<string, unknown> | undefined): ChartDatum[] {
+  const raw = props?.data;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((item) => ({
+      label: String(item.label ?? ''),
+      value: Number(item.value ?? 0),
+    }))
+    .filter((item) => item.label && Number.isFinite(item.value));
+}
+
+const CHART_COLORS = ['#1677ff', '#52c41a', '#faad14', '#eb2f96', '#722ed1', '#13c2c2'];
+
+function ChartPanel({
+  title,
+  children,
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        padding: 10,
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        background: '#fff',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+      }}
+    >
+      <Typography.Text strong style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
+        {title}
+      </Typography.Text>
+      {children}
+    </div>
+  );
+}
+
+function ChartPreview({ type, props }: { type: ScreenComponentType; props?: Record<string, unknown> }) {
+  const data = getChartData(props);
+  const max = Math.max(1, ...data.map((item) => item.value));
+  const title = String(props?.title ?? type);
+
+  if (type === 'Card') {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          padding: 16,
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          background: '#fff',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+        }}
+      >
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {String(props?.title ?? 'Metric')}
+        </Typography.Text>
+        <Typography.Title level={3} style={{ margin: '4px 0' }}>
+          {String(props?.value ?? '0')}
+        </Typography.Title>
+        <Typography.Text style={{ fontSize: 12 }}>
+          {String(props?.description ?? '')}
+        </Typography.Text>
+      </div>
+    );
+  }
+
+  if (type === 'BarChart') {
+    return (
+      <ChartPanel title={title}>
+        <div style={{ display: 'flex', alignItems: 'end', gap: 8, height: 'calc(100% - 22px)' }}>
+          {data.map((item, index) => (
+            <div key={item.label} style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+              <div
+                style={{
+                  height: `${Math.max(8, (item.value / max) * 120)}px`,
+                  background: CHART_COLORS[index % CHART_COLORS.length],
+                  borderRadius: 4,
+                }}
+              />
+              <Typography.Text style={{ fontSize: 10 }}>{item.label}</Typography.Text>
+            </div>
+          ))}
+        </div>
+      </ChartPanel>
+    );
+  }
+
+  if (type === 'LineChart') {
+    const points = data.map((item, index) => {
+      const x = data.length <= 1 ? 20 : 20 + (index / (data.length - 1)) * 260;
+      const y = 130 - (item.value / max) * 110;
+      return `${x},${y}`;
+    });
+    return (
+      <ChartPanel title={title}>
+        <svg viewBox="0 0 300 150" style={{ width: '100%', height: 'calc(100% - 22px)' }}>
+          <polyline points={points.join(' ')} fill="none" stroke="#1677ff" strokeWidth="4" />
+          {points.map((point, index) => {
+            const [x, y] = point.split(',').map(Number);
+            return <circle key={data[index].label} cx={x} cy={y} r="4" fill="#1677ff" />;
+          })}
+        </svg>
+      </ChartPanel>
+    );
+  }
+
+  if (type === 'PieChart') {
+    return (
+      <ChartPanel title={title}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 'calc(100% - 22px)' }}>
+          <div
+            style={{
+              width: 100,
+              height: 100,
+              borderRadius: '50%',
+              background: `conic-gradient(${data
+                .reduce(
+                  (parts, item, index) => {
+                    const total = data.reduce((sum, row) => sum + row.value, 0) || 1;
+                    const start = parts.offset;
+                    const end = start + (item.value / total) * 360;
+                    parts.items.push(`${CHART_COLORS[index % CHART_COLORS.length]} ${start}deg ${end}deg`);
+                    parts.offset = end;
+                    return parts;
+                  },
+                  { items: [] as string[], offset: 0 },
+                )
+                .items.join(', ')})`,
+            }}
+          />
+          <Space direction="vertical" size={2}>
+            {data.map((item, index) => (
+              <Typography.Text key={item.label} style={{ fontSize: 11 }}>
+                <span style={{ color: CHART_COLORS[index % CHART_COLORS.length] }}>■</span> {item.label}
+              </Typography.Text>
+            ))}
+          </Space>
+        </div>
+      </ChartPanel>
+    );
+  }
+
+  if (type === 'DataMap') {
+    return (
+      <ChartPanel title={title}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+          {data.map((item) => {
+            const lightness = 92 - Math.round((item.value / max) * 42);
+            return (
+              <div
+                key={item.label}
+                style={{
+                  minHeight: 34,
+                  padding: 4,
+                  borderRadius: 4,
+                  background: `hsl(211, 100%, ${lightness}%)`,
+                  fontSize: 11,
+                }}
+              >
+                {item.label}
+              </div>
+            );
+          })}
+        </div>
+      </ChartPanel>
+    );
+  }
+
+  return null;
+}
+
 function getComponentOptions(components: ScreenComponent[], type: ScreenComponentType) {
   return components.filter((component) => component.type === type);
 }
 
+function componentCenter(component: ScreenComponent) {
+  const L = effectiveLayout(component);
+  return { x: L.x + L.w / 2, y: L.y + L.h / 2 };
+}
+
 function isInputLikeComponent(type: ScreenComponentType) {
-  return type === 'Input' || type === 'Select' || type === 'Checkbox' || type === 'DatePicker';
+  return (
+    type === 'Input' ||
+    type === 'TextArea' ||
+    type === 'NumberInput' ||
+    type === 'Select' ||
+    type === 'Checkbox' ||
+    type === 'Switch' ||
+    type === 'DatePicker'
+  );
 }
 
 function isScreenComponentType(value: string): value is ScreenComponentType {
@@ -328,11 +618,21 @@ function bindingChipStyle(type: ScreenComponentType): React.CSSProperties {
   const colors = {
     Text: { bg: '#f5f5f5', border: '#d9d9d9', text: '#434343' },
     Input: { bg: '#e6f4ff', border: '#91caff', text: '#0958d9' },
+    TextArea: { bg: '#e6f4ff', border: '#91caff', text: '#0958d9' },
+    NumberInput: { bg: '#f0f5ff', border: '#adc6ff', text: '#1d39c4' },
     Select: { bg: '#e6fffb', border: '#87e8de', text: '#006d75' },
     Checkbox: { bg: '#f9f0ff', border: '#d3adf7', text: '#531dab' },
+    Switch: { bg: '#f9f0ff', border: '#d3adf7', text: '#531dab' },
     DatePicker: { bg: '#fff1f0', border: '#ffa39e', text: '#a8071a' },
     Button: { bg: '#fff7e6', border: '#ffd591', text: '#ad4e00' },
+    Divider: { bg: '#f5f5f5', border: '#d9d9d9', text: '#595959' },
+    Alert: { bg: '#e6fffb', border: '#87e8de', text: '#006d75' },
     AgGrid: { bg: '#f6ffed', border: '#b7eb8f', text: '#237804' },
+    BarChart: { bg: '#e6f4ff', border: '#91caff', text: '#0958d9' },
+    LineChart: { bg: '#f6ffed', border: '#b7eb8f', text: '#237804' },
+    PieChart: { bg: '#fff7e6', border: '#ffd591', text: '#ad4e00' },
+    DataMap: { bg: '#e6fffb', border: '#87e8de', text: '#006d75' },
+    Card: { bg: '#f9f0ff', border: '#d3adf7', text: '#531dab' },
   }[type];
 
   return {
@@ -460,6 +760,24 @@ function CanvasPreview({
       />
     );
   }
+  if (item.type === 'TextArea') {
+    return (
+      <Input.TextArea
+        readOnly
+        placeholder={(item.props?.placeholder as string) ?? 'Text area'}
+        style={{ width: '100%', height: '100%', resize: 'none', boxSizing: 'border-box' }}
+      />
+    );
+  }
+  if (item.type === 'NumberInput') {
+    return (
+      <InputNumber
+        readOnly
+        placeholder={(item.props?.placeholder as string) ?? 'Number'}
+        style={{ width: '100%', height: '100%' }}
+      />
+    );
+  }
   if (item.type === 'Select') {
     return (
       <Select
@@ -477,6 +795,14 @@ function CanvasPreview({
       </Checkbox>
     );
   }
+  if (item.type === 'Switch') {
+    return (
+      <Space size={8}>
+        <Switch checked={Boolean(item.props?.checked)} disabled />
+        <Typography.Text>{(item.props?.label as string) ?? 'Enabled'}</Typography.Text>
+      </Space>
+    );
+  }
   if (item.type === 'DatePicker') {
     return (
       <DatePicker
@@ -491,6 +817,20 @@ function CanvasPreview({
       <Button type="primary" disabled style={{ width: '100%', height: '100%' }}>
         {(item.props?.text as string) ?? 'Button'}
       </Button>
+    );
+  }
+  if (item.type === 'Divider') {
+    return <Divider style={{ margin: 0 }}>{(item.props?.text as string) ?? ''}</Divider>;
+  }
+  if (item.type === 'Alert') {
+    return (
+      <Alert
+        type={(item.props?.alertType as 'success' | 'info' | 'warning' | 'error') ?? 'info'}
+        message={(item.props?.message as string) ?? 'Information'}
+        description={(item.props?.description as string) ?? undefined}
+        showIcon
+        style={{ height: '100%', overflow: 'hidden' }}
+      />
     );
   }
   if (item.type === 'AgGrid') {
@@ -560,6 +900,15 @@ function CanvasPreview({
         </table>
       </div>
     );
+  }
+  if (
+    item.type === 'BarChart' ||
+    item.type === 'LineChart' ||
+    item.type === 'PieChart' ||
+    item.type === 'DataMap' ||
+    item.type === 'Card'
+  ) {
+    return <ChartPreview type={item.type} props={item.props} />;
   }
   return null;
 }
@@ -702,24 +1051,308 @@ function GridEditor({
   );
 }
 
+function PreviewRenderer({
+  components,
+  inputValues,
+  gridRows,
+  onInputChange,
+  onAction,
+}: {
+  components: ScreenComponent[];
+  inputValues: Record<string, string | boolean | number | null>;
+  gridRows: Record<string, GridRow[]>;
+  onInputChange: (componentId: string, value: string | boolean | number | null) => void;
+  onAction: (componentId: string) => void;
+}) {
+  const placed = components.map((component, index) => {
+    const L = effectiveLayout(component);
+    const hasLayout =
+      component.layout &&
+      typeof component.layout.x === 'number' &&
+      typeof component.layout.y === 'number';
+    const x = hasLayout ? L.x : 12;
+    const y = hasLayout ? L.y : 12 + index * 80;
+    return { component, L, x, y, bottom: y + L.h };
+  });
+  const canvasHeight = Math.max(420, ...placed.map((item) => item.bottom + 24));
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        minHeight: canvasHeight,
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        background: '#fff',
+      }}
+    >
+      {placed.map(({ component, L, x, y }) => {
+        const common: React.CSSProperties = {
+          position: 'absolute',
+          left: x,
+          top: y,
+          width: L.w,
+          height: L.h,
+          zIndex: component.zIndex ?? 1,
+          boxSizing: 'border-box',
+        };
+
+        if (component.type === 'Text') {
+          return (
+            <div key={component.id} style={common}>
+              <Typography.Text
+                style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}
+              >
+                {(component.props?.text as string) ?? 'Label'}
+              </Typography.Text>
+            </div>
+          );
+        }
+
+        if (component.type === 'Input') {
+          return (
+            <div key={component.id} style={common}>
+              <Input
+                placeholder={(component.props?.placeholder as string) ?? 'Input'}
+                value={String(inputValues[component.id] ?? '')}
+                onChange={(event) => onInputChange(component.id, event.target.value)}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'TextArea') {
+          return (
+            <div key={component.id} style={common}>
+              <Input.TextArea
+                placeholder={(component.props?.placeholder as string) ?? 'Text area'}
+                value={String(inputValues[component.id] ?? '')}
+                onChange={(event) => onInputChange(component.id, event.target.value)}
+                style={{ width: '100%', height: '100%', resize: 'none' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'NumberInput') {
+          return (
+            <div key={component.id} style={common}>
+              <InputNumber
+                placeholder={(component.props?.placeholder as string) ?? 'Number'}
+                min={typeof component.props?.min === 'number' ? component.props.min : undefined}
+                max={typeof component.props?.max === 'number' ? component.props.max : undefined}
+                value={(inputValues[component.id] as number | null | undefined) ?? null}
+                onChange={(value) => onInputChange(component.id, value)}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'Select') {
+          return (
+            <div key={component.id} style={common}>
+              <Select
+                placeholder={(component.props?.placeholder as string) ?? 'Select'}
+                options={getSelectOptions(component)}
+                value={(inputValues[component.id] as string | undefined) || undefined}
+                onChange={(value) => onInputChange(component.id, value)}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'Checkbox') {
+          return (
+            <div key={component.id} style={common}>
+              <Checkbox
+                checked={Boolean(inputValues[component.id] ?? component.props?.checked)}
+                onChange={(event) => onInputChange(component.id, event.target.checked)}
+              >
+                {(component.props?.label as string) ?? 'Checkbox'}
+              </Checkbox>
+            </div>
+          );
+        }
+
+        if (component.type === 'Switch') {
+          return (
+            <div key={component.id} style={common}>
+              <Space size={8}>
+                <Switch
+                  checked={Boolean(inputValues[component.id] ?? component.props?.checked)}
+                  onChange={(checked) => onInputChange(component.id, checked)}
+                />
+                <Typography.Text>{(component.props?.label as string) ?? 'Enabled'}</Typography.Text>
+              </Space>
+            </div>
+          );
+        }
+
+        if (component.type === 'DatePicker') {
+          return (
+            <div key={component.id} style={common}>
+              <DatePicker
+                placeholder={(component.props?.placeholder as string) ?? 'Select date'}
+                onChange={(_, dateString) =>
+                  onInputChange(
+                    component.id,
+                    Array.isArray(dateString) ? dateString[0] ?? '' : dateString,
+                  )
+                }
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'Button') {
+          return (
+            <div key={component.id} style={common}>
+              <Button
+                type="primary"
+                onClick={() => onAction(component.id)}
+                style={{ width: '100%', height: '100%' }}
+              >
+                {(component.props?.text as string) ?? 'Button'}
+              </Button>
+            </div>
+          );
+        }
+
+        if (component.type === 'Divider') {
+          return (
+            <div key={component.id} style={common}>
+              <Divider style={{ margin: 0 }}>{(component.props?.text as string) ?? ''}</Divider>
+            </div>
+          );
+        }
+
+        if (component.type === 'Alert') {
+          return (
+            <div key={component.id} style={common}>
+              <Alert
+                type={(component.props?.alertType as 'success' | 'info' | 'warning' | 'error') ?? 'info'}
+                message={(component.props?.message as string) ?? 'Information'}
+                description={(component.props?.description as string) ?? undefined}
+                showIcon
+                style={{ height: '100%', overflow: 'hidden' }}
+              />
+            </div>
+          );
+        }
+
+        if (component.type === 'AgGrid') {
+          const columns = getVisibleGridColumns(component);
+          const rows = gridRows[component.id] ?? [];
+          return (
+            <div
+              key={component.id}
+              style={{
+                ...common,
+                overflow: 'auto',
+                border: '1px solid #d9d9d9',
+                borderRadius: 6,
+                background: '#fff',
+              }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    {columns.map((column) => (
+                      <th
+                        key={column.field}
+                        style={{
+                          borderBottom: '1px solid #f0f0f0',
+                          padding: 6,
+                          textAlign: 'left',
+                          fontSize: 12,
+                        }}
+                      >
+                        {column.field}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {columns.map((column) => (
+                        <td
+                          key={column.field}
+                          style={{ borderBottom: '1px solid #f5f5f5', padding: 6, fontSize: 12 }}
+                        >
+                          {String(row[column.field ?? ''] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
+        if (
+          component.type === 'BarChart' ||
+          component.type === 'LineChart' ||
+          component.type === 'PieChart' ||
+          component.type === 'DataMap' ||
+          component.type === 'Card'
+        ) {
+          return (
+            <div key={component.id} style={common}>
+              <ChartPreview type={component.type} props={component.props} />
+            </div>
+          );
+        }
+
+        return null;
+      })}
+    </div>
+  );
+}
+
 const TOOLBOX: { type: ScreenComponentType; title: string; description: string }[] = [
   { type: 'Text', title: 'Text', description: 'Static label' },
   { type: 'Input', title: 'Input', description: 'Text field' },
+  { type: 'TextArea', title: 'Text Area', description: 'Long text field' },
+  { type: 'NumberInput', title: 'Number', description: 'Numeric input' },
   { type: 'Select', title: 'Select', description: 'Option picker' },
   { type: 'Checkbox', title: 'Checkbox', description: 'True/false input' },
+  { type: 'Switch', title: 'Switch', description: 'Toggle input' },
   { type: 'DatePicker', title: 'DatePicker', description: 'Date input' },
   { type: 'Button', title: 'Button', description: 'Primary action' },
+  { type: 'Divider', title: 'Divider', description: 'Section separator' },
+  { type: 'Alert', title: 'Alert', description: 'Status message' },
   { type: 'AgGrid', title: 'AgGrid', description: 'Data table' },
+  { type: 'BarChart', title: 'Bar Chart', description: 'Bar visualization' },
+  { type: 'LineChart', title: 'Line Chart', description: 'Trend visualization' },
+  { type: 'PieChart', title: 'Pie Chart', description: 'Share visualization' },
+  { type: 'DataMap', title: 'Data Map', description: 'Heat map blocks' },
+  { type: 'Card', title: 'Card', description: 'Metric display' },
 ];
 
 const TOOLBOX_ICONS: Record<ScreenComponentType, React.ReactNode> = {
   Text: <FontSizeOutlined />,
   Input: <FormOutlined />,
+  TextArea: <FileTextOutlined />,
+  NumberInput: <FieldNumberOutlined />,
   Select: <UnorderedListOutlined />,
   Checkbox: <CheckSquareOutlined />,
+  Switch: <SwitcherOutlined />,
   DatePicker: <CalendarOutlined />,
   Button: <OneToOneOutlined />,
+  Divider: <MinusOutlined />,
+  Alert: <NotificationOutlined />,
   AgGrid: <TableOutlined />,
+  BarChart: <BarChartOutlined />,
+  LineChart: <LineChartOutlined />,
+  PieChart: <PieChartOutlined />,
+  DataMap: <HeatMapOutlined />,
+  Card: <ProfileOutlined />,
 };
 
 function menuTargetType(menu: MenuSummary): 'folder' | 'screen' {
@@ -760,17 +1393,14 @@ function buildMenuTree(menus: MenuSummary[]) {
   return makeNodes('');
 }
 
-function toActiveKeys(keys: string | string[]) {
-  return Array.isArray(keys) ? keys : [keys];
-}
-
 function App() {
   const [form] = Form.useForm();
+  const [settingsForm] = Form.useForm();
   const [token, setToken] = useState<string>('');
-  const watchedScreenId = Form.useWatch('screenId', form) ?? 'sample-screen';
-  const watchedScreenName = Form.useWatch('name', form) ?? 'Sample Screen';
-  const watchedMenuId = Form.useWatch('menuId', form) ?? 'm1';
-  const watchedMenuName = Form.useWatch('menuName', form) ?? 'Sample Screen';
+  const watchedScreenId = Form.useWatch('screenId', form) ?? DEFAULT_SCREEN_ID;
+  const watchedScreenName = Form.useWatch('name', form) ?? DEFAULT_SCREEN_NAME;
+  const watchedMenuId = Form.useWatch('menuId', form) ?? DEFAULT_MENU_ID;
+  const watchedMenuName = Form.useWatch('menuName', form) ?? DEFAULT_SCREEN_NAME;
   const [screens, setScreens] = useState<ScreenSummary[]>([]);
   const [menus, setMenus] = useState<MenuSummary[]>([]);
   const [components, setComponents] = useState<ScreenComponent[]>(DEFAULT_COMPONENTS);
@@ -784,13 +1414,23 @@ function App() {
     JSON.stringify({ components: DEFAULT_COMPONENTS, communications: DEFAULT_COMMUNICATIONS.map(stripScreenCommunication) }, null, 2),
   );
   const [columnNameDrafts, setColumnNameDrafts] = useState<Record<string, string>>({});
-  const [openSettings, setOpenSettings] = useState<string[]>([]);
-  const [editingMenuId, setEditingMenuId] = useState('m1');
+  const [settingsModal, setSettingsModal] = useState<SettingsModalState>(null);
+  const [editingMenuId, setEditingMenuId] = useState(DEFAULT_MENU_ID);
   const [formatsModalOpen, setFormatsModalOpen] = useState(false);
+  const [metadataRevision, setMetadataRevision] = useState(0);
+  const [expandedMenuKeys, setExpandedMenuKeys] = useState<React.Key[]>([]);
   const [selectedFormatId, setSelectedFormatId] = useState(
     DEFAULT_COMMUNICATION_FORMATS[0]?.id ?? '',
   );
+  const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  const [selectedComponentIds, setSelectedComponentIds] = useState<string[]>([]);
   const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState('');
+  const [formRevision, setFormRevision] = useState(0);
+  const [dragGuide, setDragGuide] = useState<{ x: number; y: number } | null>(null);
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
+  const [previewInputValues, setPreviewInputValues] = useState<Record<string, string | boolean | number | null>>({});
+  const [previewGridRows, setPreviewGridRows] = useState<Record<string, GridRow[]>>({});
 
   const canvasInnerRef = useRef<HTMLDivElement>(null);
   const dragInfoRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -806,21 +1446,133 @@ function App() {
   const selectedFormat =
     communicationFormats.find((format) => format.id === selectedFormatId) ??
     communicationFormats[0];
+  const selectedComponent = components.find((component) => component.id === selectedComponentId);
+  const selectedComponents = components.filter((component) =>
+    selectedComponentIds.includes(component.id),
+  );
   const editingComponent = components.find((component) => component.id === editingComponentId);
+  const selectedAction = communications.find((comm) => comm.id === selectedActionId);
+  const actionBindingLines = useMemo(() => {
+    if (!selectedAction) return [];
+    const byId = new Map(components.map((component) => [component.id, component]));
+    const trigger = byId.get(selectedAction.triggerComponentId);
+    if (!trigger) return [];
+    const from = componentCenter(trigger);
+    return [
+      ...selectedAction.inputBindings
+        .map((binding) => byId.get(binding.componentId))
+        .filter((component): component is ScreenComponent => Boolean(component))
+        .map((component) => ({ from: componentCenter(component), to: from, color: '#52c41a' })),
+      ...selectedAction.outputBindings
+        .map((binding) => byId.get(binding.componentId))
+        .filter((component): component is ScreenComponent => Boolean(component))
+        .map((component) => ({ from, to: componentCenter(component), color: '#1677ff' })),
+    ];
+  }, [components, selectedAction]);
+  const currentSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        form: {
+          screenId: form.getFieldValue('screenId'),
+          name: form.getFieldValue('name'),
+          allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
+          isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
+          menuId: form.getFieldValue('menuId'),
+          menuName: form.getFieldValue('menuName'),
+          menuParentId: form.getFieldValue('menuParentId') ?? '',
+          menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
+          menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+        },
+        components,
+        communications: communications.map(stripScreenCommunication),
+        communicationFormats,
+      }),
+    [components, communications, communicationFormats, form, formRevision],
+  );
+  const hasUnsavedChanges = savedSnapshot !== '' && savedSnapshot !== currentSnapshot;
+
+  const currentFormValues = (): DesignerFormValues => ({
+    screenId: form.getFieldValue('screenId'),
+    name: form.getFieldValue('name'),
+    allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
+    isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
+    menuId: form.getFieldValue('menuId'),
+    menuName: form.getFieldValue('menuName'),
+    menuParentId: form.getFieldValue('menuParentId') ?? '',
+    menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
+    menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+  });
+
+  const applyFormValues = (values: Partial<DesignerFormValues>) => {
+    form.setFieldsValue(values);
+    setFormRevision((prev) => prev + 1);
+  };
+
+  const openMenuSettings = () => {
+    settingsForm.setFieldsValue({
+      menuId: form.getFieldValue('menuId'),
+      menuName: form.getFieldValue('menuName'),
+      menuParentId: form.getFieldValue('menuParentId') ?? '',
+      menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
+      menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+      screenId: form.getFieldValue('screenId'),
+    });
+    setSettingsModal({ type: 'menu', mode: 'edit' });
+  };
+
+  const openScreenSettings = () => {
+    settingsForm.setFieldsValue({
+      screenId: form.getFieldValue('screenId'),
+      name: form.getFieldValue('name'),
+      allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
+      isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
+    });
+    setSettingsModal({ type: 'screen' });
+  };
 
   const syncJsonDraftFromComponents = useCallback(() => {
     setJsonDraft(JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2));
   }, [components, communications]);
 
+  const captureSavedSnapshot = useCallback(() => {
+    setSavedSnapshot(
+      JSON.stringify({
+        form: {
+          screenId: form.getFieldValue('screenId'),
+          name: form.getFieldValue('name'),
+          allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
+          isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
+          menuId: form.getFieldValue('menuId'),
+          menuName: form.getFieldValue('menuName'),
+          menuParentId: form.getFieldValue('menuParentId') ?? '',
+          menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
+          menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+        },
+        components,
+        communications: communications.map(stripScreenCommunication),
+        communicationFormats,
+      }),
+    );
+  }, [components, communicationFormats, communications, form]);
+
   const loadDesignerMetadata = useCallback(async () => {
+    const cacheBuster = Date.now();
     const [screenRes, menuRes, formatRes] = await Promise.all([
-      axios.get('http://localhost:8080/api/screens'),
-      axios.get('http://localhost:8080/api/menus'),
-      axios.get('http://localhost:8080/api/communications/formats'),
+      axios.get('http://localhost:8080/api/screens', { params: { _: cacheBuster } }),
+      axios.get('http://localhost:8080/api/menus', { params: { _: cacheBuster } }),
+      axios.get('http://localhost:8080/api/communications/formats', {
+        params: { _: cacheBuster },
+      }),
     ]);
-    setScreens(screenRes.data);
-    setMenus(menuRes.data);
-    setCommunicationFormats(formatRes.data);
+    setScreens([...screenRes.data]);
+    setMenus([...menuRes.data]);
+    setExpandedMenuKeys((prev) => {
+      const menuIds = new Set(menuRes.data.map((menu: MenuSummary) => menu.id));
+      const keptKeys = prev.filter((key) => menuIds.has(String(key)));
+      return keptKeys.length > 0 ? keptKeys : menuRes.data.map((menu: MenuSummary) => menu.id);
+    });
+    setCommunicationFormats([...formatRes.data]);
+    setMetadataRevision((prev) => prev + 1);
     setSelectedFormatId((prev) =>
       formatRes.data.some((format: CommunicationFormat) => format.id === prev)
         ? prev
@@ -863,6 +1615,8 @@ function App() {
       form.setFieldsValue({
         screenId,
         name,
+        allowRuntimePersonalization: Boolean(res.data.allowRuntimePersonalization),
+        isInitialScreen: Boolean(res.data.isInitialScreen),
         menuId: linkedMenu?.id ?? `menu-${screenId}`,
         menuName: linkedMenu?.name ?? name,
         menuParentId: linkedMenu?.parentId ?? '',
@@ -872,6 +1626,8 @@ function App() {
       setEditingMenuId(linkedMenu?.id ?? `menu-${screenId}`);
       setComponents(nextComponents);
       setCommunications(sanitizedCommunications);
+      setSelectedComponentId(null);
+      setSelectedComponentIds([]);
       setJsonDraft(
         JSON.stringify(
           { components: nextComponents, communications: sanitizedCommunications },
@@ -881,7 +1637,25 @@ function App() {
       );
       setColumnNameDrafts({});
       setJsonTab('visual');
-      setOpenSettings([]);
+      setSettingsModal(null);
+      setSavedSnapshot(
+        JSON.stringify({
+          form: {
+            screenId,
+            name,
+            allowRuntimePersonalization: Boolean(res.data.allowRuntimePersonalization),
+            isInitialScreen: Boolean(res.data.isInitialScreen),
+            menuId: linkedMenu?.id ?? `menu-${screenId}`,
+            menuName: linkedMenu?.name ?? name,
+            menuParentId: linkedMenu?.parentId ?? '',
+            menuTargetType: menuTargetType(linkedMenu ?? { id: '', name: '', screenId }),
+            menuOpenMode: menuOpenMode(linkedMenu ?? { id: '', name: '', screenId }),
+          },
+          components: nextComponents,
+          communications: sanitizedCommunications.map(stripScreenCommunication),
+          communicationFormats,
+        }),
+      );
       message.success(`Loaded ${screenId}`);
     } catch {
       message.error('Screen load failed.');
@@ -904,7 +1678,7 @@ function App() {
       return;
     }
 
-    setOpenSettings([]);
+    setSettingsModal(null);
     message.info('Loaded menu node. Folder menus do not open a screen.');
   };
 
@@ -914,6 +1688,8 @@ function App() {
     form.setFieldsValue({
       screenId,
       name,
+      allowRuntimePersonalization: false,
+      isInitialScreen: false,
       menuId: `menu-${screenId}`,
       menuName: name,
       menuParentId: '',
@@ -923,14 +1699,21 @@ function App() {
     setEditingMenuId(`menu-${screenId}`);
     setComponents([]);
     setCommunications([]);
+    setSelectedComponentId(null);
+    setSelectedComponentIds([]);
     setColumnNameDrafts({});
     setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
     setJsonTab('visual');
+    setSavedSnapshot('');
   };
 
   const deleteMenu = async (menuId: string) => {
+    if (!menuId) {
+      message.error('Menu ID is required.');
+      return;
+    }
     try {
-      await axios.delete(`http://localhost:8080/api/menus/${menuId}`);
+      await axios.delete(`http://localhost:8080/api/menus/${encodeURIComponent(menuId)}`);
       if (editingMenuId === menuId) {
         form.setFieldsValue({
           menuId: `menu-${form.getFieldValue('screenId')}`,
@@ -943,8 +1726,9 @@ function App() {
       }
       await loadDesignerMetadata();
       message.success(`Deleted menu ${menuId}`);
-    } catch {
-      message.error(`Menu delete failed: ${menuId}`);
+    } catch (err) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      message.error(`Menu delete failed: ${menuId}${status ? ` (${status})` : ''}`);
     }
   };
 
@@ -959,18 +1743,31 @@ function App() {
   };
 
   const deleteScreen = async (screenId: string) => {
+    if (!screenId) {
+      message.error('Screen ID is required.');
+      return;
+    }
     try {
       const linkedMenus = menus.filter((menu) => menu.screenId === screenId);
-      await axios.delete(`http://localhost:8080/api/screens/${screenId}`);
-      await Promise.all(
-        linkedMenus.map((menu) => axios.delete(`http://localhost:8080/api/menus/${menu.id}`)),
+      await axios.delete(`http://localhost:8080/api/screens/${encodeURIComponent(screenId)}`);
+      const menuDeleteResults = await Promise.allSettled(
+        linkedMenus.map((menu) =>
+          axios.delete(`http://localhost:8080/api/menus/${encodeURIComponent(menu.id)}`),
+        ),
       );
       const nextScreens = screens.filter((screen) => screen.screenId !== screenId);
       resetDesignerToBlank(nextScreens);
       await loadDesignerMetadata();
+      const failedMenuDeletes = menuDeleteResults.filter((result) => result.status === 'rejected')
+        .length;
+      if (failedMenuDeletes > 0) {
+        message.warning(`Deleted screen ${screenId}, but ${failedMenuDeletes} linked menu delete(s) failed.`);
+        return;
+      }
       message.success(`Deleted screen ${screenId}`);
-    } catch {
-      message.error(`Screen delete failed: ${screenId}`);
+    } catch (err) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      message.error(`Screen delete failed: ${screenId}${status ? ` (${status})` : ''}`);
     }
   };
 
@@ -1073,9 +1870,154 @@ function App() {
     message.success(`Added ${raw}`);
   };
 
+  const addPreset = (preset: 'searchGrid' | 'dashboard' | 'popupDetail') => {
+    const zBase = components.reduce((max, component) => Math.max(max, component.zIndex ?? 1), 0);
+    if (preset === 'searchGrid') {
+      const inputId = newId();
+      const buttonId = newId();
+      const gridId = newId();
+      const actionId = `action${communications.length + 1}`;
+      setComponents((prev) => [
+        ...prev,
+        {
+          id: inputId,
+          type: 'Input',
+          layout: { x: 16, y: 16, width: 240, height: 40 },
+          props: { placeholder: 'Keyword' },
+          zIndex: zBase + 1,
+        },
+        {
+          id: buttonId,
+          type: 'Button',
+          layout: { x: 272, y: 16, width: 120, height: 40 },
+          props: { text: 'Search' },
+          zIndex: zBase + 2,
+        },
+        {
+          id: gridId,
+          type: 'AgGrid',
+          layout: { x: 16, y: 72, width: 520, height: 240 },
+          props: {
+            columnDefs: [
+              { field: 'id', dataType: 'number' },
+              { field: 'name', dataType: 'string' },
+            ],
+            rowData: [],
+          },
+          zIndex: zBase + 3,
+        },
+      ]);
+      setCommunications((prev) => [
+        ...prev,
+        {
+          id: actionId,
+          name: 'Search',
+          formatId: 'searchUsers',
+          triggerComponentId: buttonId,
+          inputBindings: [{ field: 'keyword', componentId: inputId }],
+          outputBindings: [{ field: 'rows', componentId: gridId }],
+        },
+      ]);
+      message.success('Added Search Form + Grid preset');
+      return;
+    }
+
+    if (preset === 'dashboard') {
+      setComponents((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          type: 'Card',
+          layout: { x: 16, y: 16, width: 220, height: 120 },
+          props: { title: 'Total Sales', value: '$42K', description: '+8% this month' },
+          zIndex: zBase + 1,
+        },
+        {
+          id: newId(),
+          type: 'BarChart',
+          layout: { x: 16, y: 152, width: 320, height: 220 },
+          props: defaultPropsFor('BarChart'),
+          zIndex: zBase + 2,
+        },
+        {
+          id: newId(),
+          type: 'LineChart',
+          layout: { x: 352, y: 152, width: 320, height: 220 },
+          props: defaultPropsFor('LineChart'),
+          zIndex: zBase + 3,
+        },
+      ]);
+      message.success('Added Dashboard preset');
+      return;
+    }
+
+    const labelId = newId();
+    const inputId = newId();
+    const buttonId = newId();
+    setComponents((prev) => [
+      ...prev,
+      {
+        id: labelId,
+        type: 'Text',
+        layout: { x: 16, y: 16, width: 180, height: 32 },
+        props: { text: 'Detail Name' },
+        zIndex: zBase + 1,
+      },
+      {
+        id: inputId,
+        type: 'Input',
+        layout: { x: 16, y: 64, width: 260, height: 40 },
+        props: { placeholder: 'Name' },
+        zIndex: zBase + 2,
+      },
+      {
+        id: buttonId,
+        type: 'Button',
+        layout: { x: 16, y: 120, width: 120, height: 40 },
+        props: { text: 'Save' },
+        zIndex: zBase + 3,
+      },
+    ]);
+    message.success('Added Popup Detail Form preset');
+  };
+
+  const startMenuScreen = (parentId = '') => {
+    const screenId = nextScreenId(screens);
+    const name = `Screen ${screenId.replace('screen-', '')}`;
+    settingsForm.setFieldsValue({
+      screenId,
+      name,
+      allowRuntimePersonalization: false,
+      isInitialScreen: false,
+      menuId: `menu-${screenId}`,
+      menuName: name,
+      menuParentId: parentId,
+      menuTargetType: 'screen',
+      menuOpenMode: 'inline',
+    });
+    setSettingsModal({ type: 'menu', mode: 'new-screen' });
+    message.info('Configure the new menu screen, then save to update the designer.');
+  };
+
+  const startMenuFolder = (parentId = '') => {
+    const folderCount = menus.filter((menu) => menuTargetType(menu) === 'folder').length + 1;
+    settingsForm.setFieldsValue({
+      menuId: `folder-${folderCount}`,
+      menuName: `Folder ${folderCount}`,
+      menuParentId: parentId,
+      menuTargetType: 'folder',
+      menuOpenMode: 'inline',
+      screenId: form.getFieldValue('screenId'),
+    });
+    setSettingsModal({ type: 'menu', mode: 'new-folder' });
+    message.info('Configure the new folder, then save to publish it.');
+  };
+
   const removeById = (id: string) => {
     setComponents((prev) => prev.filter((c) => c.id !== id));
     setEditingComponentId((current) => (current === id ? null : current));
+    setSelectedComponentId((current) => (current === id ? null : current));
+    setSelectedComponentIds((current) => current.filter((item) => item !== id));
     setCommunications((prev) =>
       prev.map((comm) => ({
         ...comm,
@@ -1100,6 +2042,125 @@ function App() {
           : component,
       ),
     );
+  };
+
+  const updateComponentLayout = (componentId: string, patch: Partial<ComponentLayout>) => {
+    setComponents((prev) =>
+      prev.map((component) => {
+        if (component.id !== componentId) return component;
+        const L = effectiveLayout(component);
+        const nextLayout = {
+          x: patch.x ?? L.x,
+          y: patch.y ?? L.y,
+          width: patch.width ?? L.w,
+          height: patch.height ?? L.h,
+        };
+        const m = minSize(component.type);
+        return {
+          ...component,
+          layout: {
+            x: Math.max(0, snap(nextLayout.x)),
+            y: Math.max(0, snap(nextLayout.y)),
+            width: Math.max(m.w, snap(nextLayout.width)),
+            height: Math.max(m.h, snap(nextLayout.height)),
+          },
+        };
+      }),
+    );
+  };
+
+  const selectComponent = (componentId: string, additive: boolean) => {
+    setSelectedComponentId(componentId);
+    setSelectedComponentIds((prev) => {
+      if (!additive) return [componentId];
+      return prev.includes(componentId)
+        ? prev.filter((item) => item !== componentId)
+        : [...prev, componentId];
+    });
+  };
+
+  const alignSelectedComponents = (mode: 'left' | 'top' | 'sameWidth') => {
+    if (selectedComponents.length < 2) return;
+    const layouts = selectedComponents.map(effectiveLayout);
+    const left = Math.min(...layouts.map((layout) => layout.x));
+    const top = Math.min(...layouts.map((layout) => layout.y));
+    const width = layouts[0].w;
+    setComponents((prev) =>
+      prev.map((component) => {
+        if (!selectedComponentIds.includes(component.id)) return component;
+        const L = effectiveLayout(component);
+        return {
+          ...component,
+          layout: {
+            x: mode === 'left' ? left : L.x,
+            y: mode === 'top' ? top : L.y,
+            width: mode === 'sameWidth' ? width : L.w,
+            height: L.h,
+          },
+        };
+      }),
+    );
+  };
+
+  const distributeSelectedComponents = () => {
+    if (selectedComponents.length < 3) return;
+    const sorted = [...selectedComponents].sort(
+      (a, b) => effectiveLayout(a).x - effectiveLayout(b).x,
+    );
+    const first = effectiveLayout(sorted[0]);
+    const last = effectiveLayout(sorted[sorted.length - 1]);
+    const step = (last.x - first.x) / (sorted.length - 1);
+    setComponents((prev) =>
+      prev.map((component) => {
+        const index = sorted.findIndex((item) => item.id === component.id);
+        if (index < 0) return component;
+        const L = effectiveLayout(component);
+        return {
+          ...component,
+          layout: {
+            x: snap(first.x + step * index),
+            y: L.y,
+            width: L.w,
+            height: L.h,
+          },
+        };
+      }),
+    );
+  };
+
+  const executePreviewAction = async (triggerComponentId: string) => {
+    const action = communications.find((comm) => comm.triggerComponentId === triggerComponentId);
+    if (!action) {
+      message.warning('No communication action is connected to this button.');
+      return;
+    }
+    const input = Object.fromEntries(
+      action.inputBindings.map((binding) => [
+        binding.field,
+        previewInputValues[binding.componentId] ?? '',
+      ]),
+    );
+    try {
+      const res = await axios.post(
+        `http://localhost:8080/api/communications/${action.formatId || action.id}/execute`,
+        input,
+      );
+      setPreviewGridRows((prev) => {
+        const next = { ...prev };
+        action.outputBindings.forEach((binding) => {
+          const rows = Array.isArray(res.data[binding.field])
+            ? res.data[binding.field]
+            : Array.isArray(res.data.rows)
+              ? res.data.rows
+              : [];
+          next[binding.componentId] = rows as GridRow[];
+        });
+        return next;
+      });
+      message.success(`${action.name || action.id} preview completed`);
+    } catch {
+      message.error(`${action.name || action.id} preview failed`);
+    }
   };
 
   const updateComponentId = (oldId: string, newIdValue: string) => {
@@ -1131,6 +2192,10 @@ function App() {
       })),
     );
     setEditingComponentId((current) => (current === oldId ? nextId : current));
+    setSelectedComponentId((current) => (current === oldId ? nextId : current));
+    setSelectedComponentIds((current) =>
+      current.map((item) => (item === oldId ? nextId : item)),
+    );
     message.success(`Component ID changed to ${nextId}`);
   };
 
@@ -1832,6 +2897,7 @@ function App() {
 
   const onItemPointerDown = (e: React.PointerEvent, c: ScreenComponent) => {
     if ((e.target as HTMLElement).closest('[data-delete-btn],[data-resize-handle],[data-grid-editor],[data-select-editor],[data-bind-drag]')) return;
+    selectComponent(c.id, e.ctrlKey || e.metaKey || e.shiftKey);
     const card = e.currentTarget as HTMLElement;
     const r = card.getBoundingClientRect();
     dragInfoRef.current = {
@@ -1858,6 +2924,7 @@ function App() {
         const ny = snap(
           clamp(e.clientY - rect.top - d.offsetY, 0, Math.max(0, rect.height - L.h)),
         );
+        setDragGuide({ x: nx, y: ny });
         return {
           ...x,
           layout: {
@@ -1873,6 +2940,7 @@ function App() {
 
   const onItemPointerUp = (e: React.PointerEvent) => {
     dragInfoRef.current = null;
+    setDragGuide(null);
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
@@ -1991,17 +3059,34 @@ function App() {
     }
   };
 
-  const saveCurrentScreen = async () => {
-    const { screenId, name, menuId, menuName, menuParentId, menuTargetType, menuOpenMode } =
-      await form.validateFields([
-      'screenId',
-      'name',
-      'menuId',
-      'menuName',
-      'menuParentId',
-      'menuTargetType',
-      'menuOpenMode',
-    ]);
+  const saveCurrentScreen = async (
+    nextValues?: Partial<DesignerFormValues>,
+    previousMenuId = editingMenuId,
+  ) => {
+    const values: DesignerFormValues = nextValues
+      ? { ...currentFormValues(), ...nextValues }
+      : await form.validateFields([
+          'screenId',
+          'name',
+          'allowRuntimePersonalization',
+          'isInitialScreen',
+          'menuId',
+          'menuName',
+          'menuParentId',
+          'menuTargetType',
+          'menuOpenMode',
+        ]);
+    const {
+      screenId,
+      name,
+      allowRuntimePersonalization,
+      isInitialScreen,
+      menuId,
+      menuName,
+      menuParentId,
+      menuTargetType,
+      menuOpenMode,
+    } = values;
     const sanitizedCommunications = sanitizeCommunicationsForComponents(communications, components);
     await Promise.all(
       communicationFormats.map((format) =>
@@ -2012,12 +3097,18 @@ function App() {
       components,
       communications: sanitizedCommunications.map(stripScreenCommunication),
     });
-    await axios.post('http://localhost:8080/api/screens', { screenId, name, json });
+    await axios.post('http://localhost:8080/api/screens', {
+      screenId,
+      name,
+      allowRuntimePersonalization: Boolean(allowRuntimePersonalization),
+      isInitialScreen: Boolean(isInitialScreen),
+      json,
+    });
     await axios.post('http://localhost:8080/api/menus', {
       id: menuId,
-      previousId: editingMenuId,
+      previousId: previousMenuId,
       name: menuName,
-      screenId,
+      screenId: menuTargetType === 'screen' ? screenId : '',
       parentId: menuParentId ?? '',
       targetType: menuTargetType ?? 'screen',
       openMode: menuOpenMode ?? 'inline',
@@ -2026,10 +3117,14 @@ function App() {
     return { screenId, name };
   };
 
-  const saveMenuOnly = async () => {
+  const saveMenuOnly = async (
+    nextValues?: Partial<DesignerFormValues>,
+    previousMenuId = editingMenuId,
+  ) => {
     try {
-      const { menuId, menuName, menuParentId, menuTargetType, menuOpenMode, screenId } =
-        await form.validateFields([
+      const values: DesignerFormValues = nextValues
+        ? { ...currentFormValues(), ...nextValues }
+        : await form.validateFields([
           'menuId',
           'menuName',
           'menuParentId',
@@ -2037,9 +3132,10 @@ function App() {
           'menuOpenMode',
           ...(form.getFieldValue('menuTargetType') === 'screen' ? ['screenId'] : []),
         ]);
+      const { menuId, menuName, menuParentId, menuTargetType, menuOpenMode, screenId } = values;
       await axios.post('http://localhost:8080/api/menus', {
         id: menuId,
-        previousId: editingMenuId,
+        previousId: previousMenuId,
         name: menuName,
         screenId: menuTargetType === 'screen' ? screenId : '',
         parentId: menuParentId ?? '',
@@ -2048,12 +3144,15 @@ function App() {
       });
       setEditingMenuId(menuId);
       await loadDesignerMetadata();
+      captureSavedSnapshot();
       message.success('Saved menu');
+      return true;
     } catch (err) {
       console.error(err);
       if (axios.isAxiosError(err)) {
         message.error('Menu save failed (is the backend running on port 8080?)');
       }
+      return false;
     }
   };
 
@@ -2061,6 +3160,7 @@ function App() {
     try {
       await saveCurrentScreen();
       await loadDesignerMetadata();
+      captureSavedSnapshot();
       message.success('Saved screen and menu');
     } catch (err) {
       console.error(err);
@@ -2074,6 +3174,7 @@ function App() {
     try {
       await saveCurrentScreen();
       await loadDesignerMetadata();
+      captureSavedSnapshot();
       message.success(`Saved action ${actionId}`);
     } catch (err) {
       console.error(err);
@@ -2094,6 +3195,8 @@ function App() {
       await axios.post('http://localhost:8080/api/screens', {
         screenId,
         name,
+        allowRuntimePersonalization: false,
+        isInitialScreen: false,
         json: JSON.stringify({ components: [], communications: [] }),
       });
       await axios.post('http://localhost:8080/api/menus', {
@@ -2119,6 +3222,8 @@ function App() {
       form.setFieldsValue({
         screenId,
         name,
+        allowRuntimePersonalization: false,
+        isInitialScreen: false,
         menuId: `menu-${screenId}`,
         menuName: name,
         menuParentId: '',
@@ -2127,17 +3232,90 @@ function App() {
       });
       setComponents([]);
       setCommunications([]);
+      setSelectedComponentId(null);
       setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
       setColumnNameDrafts({});
       setJsonTab('visual');
       setEditingMenuId(`menu-${screenId}`);
-      setOpenSettings(['menu', 'screen']);
+      setSettingsModal({ type: 'menu', mode: 'edit' });
       await loadDesignerMetadata();
+      setSavedSnapshot(
+        JSON.stringify({
+          form: {
+            screenId,
+            name,
+            allowRuntimePersonalization: false,
+            isInitialScreen: false,
+            menuId: `menu-${screenId}`,
+            menuName: name,
+            menuParentId: '',
+            menuTargetType: 'screen',
+            menuOpenMode: 'inline',
+          },
+          components: [],
+          communications: [],
+          communicationFormats,
+        }),
+      );
       message.success('Added new screen');
     } catch (err) {
       console.error(err);
       if (axios.isAxiosError(err)) {
         message.error('New screen failed (is the backend running on port 8080?)');
+      }
+    }
+  };
+
+  const saveMenuSettings = async () => {
+    if (!settingsModal || settingsModal.type !== 'menu') return;
+    const values = await settingsForm.validateFields([
+      'menuId',
+      'menuName',
+      'menuParentId',
+      'menuTargetType',
+      'menuOpenMode',
+      ...(settingsForm.getFieldValue('menuTargetType') === 'screen' ? ['screenId'] : []),
+    ]);
+    const previousMenuId = settingsModal.mode === 'edit' ? editingMenuId : '';
+    const saved = await saveMenuOnly(values, previousMenuId);
+    if (!saved) return;
+
+    applyFormValues(values);
+    setEditingMenuId(values.menuId);
+    if (settingsModal.mode === 'new-screen') {
+      setComponents([]);
+      setCommunications([]);
+      setSelectedComponentId(null);
+      setSelectedComponentIds([]);
+      setColumnNameDrafts({});
+      setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+      setJsonTab('visual');
+      setSavedSnapshot('');
+    } else {
+      captureSavedSnapshot();
+    }
+    setSettingsModal(null);
+  };
+
+  const saveScreenSettings = async () => {
+    if (!settingsModal || settingsModal.type !== 'screen') return;
+    try {
+      const values = await settingsForm.validateFields([
+        'screenId',
+        'name',
+        'allowRuntimePersonalization',
+        'isInitialScreen',
+      ]);
+      await saveCurrentScreen(values);
+      applyFormValues(values);
+      await loadDesignerMetadata();
+      captureSavedSnapshot();
+      setSettingsModal(null);
+      message.success('Saved screen settings');
+    } catch (err) {
+      console.error(err);
+      if (axios.isAxiosError(err)) {
+        message.error('Screen settings save failed (is the backend running on port 8080?)');
       }
     }
   };
@@ -2225,6 +3403,16 @@ function App() {
             </Typography.Text>
           </div>
         </Space>
+        <Space size={8}>
+          {hasUnsavedChanges ? (
+            <Typography.Text type="warning">Unsaved changes</Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">Saved</Typography.Text>
+          )}
+          <Button type="primary" onClick={save}>
+            Save
+          </Button>
+        </Space>
       </Header>
       <Layout>
         <Sider
@@ -2271,7 +3459,14 @@ function App() {
                 style={{ cursor: 'pointer', paddingInline: 8 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <Typography.Text strong>{screen.name || screen.screenId}</Typography.Text>
+                  <Space size={6}>
+                    <Typography.Text strong>{screen.name || screen.screenId}</Typography.Text>
+                    {screen.isInitialScreen && (
+                      <Typography.Text type="success" style={{ fontSize: 12 }}>
+                        Initial
+                      </Typography.Text>
+                    )}
+                  </Space>
                   <div>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {screen.screenId}
@@ -2285,6 +3480,14 @@ function App() {
           <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 10 }}>
             Menus
           </Typography.Title>
+          <Space size={6} style={{ width: '100%', marginBottom: 8 }}>
+            <Button size="small" onClick={() => startMenuScreen()}>
+              New screen menu
+            </Button>
+            <Button size="small" onClick={() => startMenuFolder()}>
+              New folder
+            </Button>
+          </Space>
           <div
             style={{
               marginBottom: 20,
@@ -2295,10 +3498,12 @@ function App() {
             }}
           >
             <Tree
+              key={`menu-tree-${metadataRevision}`}
               treeData={menuTreeData}
               blockNode
               showLine
-              expandedKeys={menus.map((menu) => menu.id)}
+              expandedKeys={expandedMenuKeys}
+              onExpand={(keys) => setExpandedMenuKeys(keys)}
               onSelect={(keys) => {
                 const menu = menus.find((item) => item.id === String(keys[0] ?? ''));
                 if (menu) {
@@ -2312,6 +3517,20 @@ function App() {
               </Typography.Text>
             )}
           </div>
+          <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 6 }}>
+            Presets
+          </Typography.Title>
+          <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 16 }}>
+            <Button block size="small" onClick={() => addPreset('searchGrid')}>
+              Search Form + Grid
+            </Button>
+            <Button block size="small" onClick={() => addPreset('dashboard')}>
+              Dashboard Cards + Charts
+            </Button>
+            <Button block size="small" onClick={() => addPreset('popupDetail')}>
+              Popup Detail Form
+            </Button>
+          </Space>
           <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 6 }}>
             Components
           </Typography.Title>
@@ -2365,217 +3584,144 @@ function App() {
           <Form
             form={form}
             layout="vertical"
+            onValuesChange={() => setFormRevision((prev) => prev + 1)}
             initialValues={{
-              screenId: 'sample-screen',
-              name: 'Sample Screen',
-              menuId: 'm1',
-              menuName: 'Sample Screen',
+              screenId: DEFAULT_SCREEN_ID,
+              name: DEFAULT_SCREEN_NAME,
+              allowRuntimePersonalization: false,
+              isInitialScreen: false,
+              menuId: DEFAULT_MENU_ID,
+              menuName: DEFAULT_SCREEN_NAME,
               menuParentId: '',
               menuTargetType: 'screen',
               menuOpenMode: 'inline',
             }}
             style={{ width: '100%', marginBottom: 16 }}
           >
-            <Collapse
-              activeKey={openSettings.includes('menu') ? ['menu'] : []}
-              onChange={(keys) => {
-                const activeKeys = toActiveKeys(keys);
-                setOpenSettings((prev) =>
-                  activeKeys.includes('menu')
-                    ? Array.from(new Set([...prev, 'menu']))
-                    : prev.filter((key) => key !== 'menu'),
-                );
-              }}
+            <div
               style={{
-                width: '100%',
-                marginBottom: 12,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                padding: 12,
                 background: '#fff',
+                border: '1px solid #e5e7eb',
                 borderRadius: 8,
-                borderColor: '#e5e7eb',
               }}
-              items={[
-                {
-                  key: 'menu',
-                  label: (
-                    <Space size={8}>
-                      <Typography.Text strong>Menu settings</Typography.Text>
-                      <Typography.Text type="secondary">
-                        {watchedMenuName} ({watchedMenuId})
-                      </Typography.Text>
-                    </Space>
-                  ),
-                  extra: (
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        danger
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          confirmDeleteMenu(form.getFieldValue('menuId'));
-                        }}
-                      >
-                        Delete menu
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          saveMenuOnly();
-                        }}
-                      >
-                        Save menu
-                      </Button>
-                    </Space>
-                  ),
-                  children: (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 24,
-                        width: '100%',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <Form.Item
-                        name="menuId"
-                        label="Menu ID"
-                        rules={[{ required: true }]}
-                        style={{ minWidth: 160, marginBottom: 0 }}
-                      >
-                        <Input />
-                      </Form.Item>
-                      <Form.Item
-                        name="menuName"
-                        label="Menu Name"
-                        rules={[{ required: true }]}
-                        style={{ minWidth: 200, marginBottom: 0 }}
-                      >
-                        <Input />
-                      </Form.Item>
-                      <Form.Item
-                        name="menuParentId"
-                        label="Parent Menu ID"
-                        style={{ minWidth: 180, marginBottom: 0 }}
-                      >
-                        <Input placeholder="empty for root" />
-                      </Form.Item>
-                      <Space size="large" align="start" wrap={false}>
-                        <Form.Item
-                          name="menuTargetType"
-                          label="Menu Type"
-                          rules={[{ required: true }]}
-                          style={{ minWidth: 150, marginBottom: 0 }}
-                        >
-                          <Select
-                            options={[
-                              { value: 'screen', label: 'Screen' },
-                              { value: 'folder', label: 'Folder' },
-                            ]}
-                          />
-                        </Form.Item>
-                        <Form.Item
-                          name="menuOpenMode"
-                          label="Open Mode"
-                          rules={[{ required: true }]}
-                          style={{ minWidth: 150, marginBottom: 0 }}
-                        >
-                          <Select
-                            options={[
-                              { value: 'inline', label: 'Inline' },
-                              { value: 'popup', label: 'Popup' },
-                            ]}
-                          />
-                        </Form.Item>
-                      </Space>
-                    </div>
-                  ),
-                },
-              ]}
-            />
-
-            <Collapse
-              activeKey={openSettings.includes('screen') ? ['screen'] : []}
-              onChange={(keys) => {
-                const activeKeys = toActiveKeys(keys);
-                setOpenSettings((prev) =>
-                  activeKeys.includes('screen')
-                    ? Array.from(new Set([...prev, 'screen']))
-                    : prev.filter((key) => key !== 'screen'),
-                );
-              }}
-              style={{
-                width: '100%',
-                background: '#fff',
-                borderRadius: 8,
-                borderColor: '#e5e7eb',
-              }}
-              items={[
-                {
-                  key: 'screen',
-                  label: (
-                    <Space size={8}>
-                      <Typography.Text strong>Screen settings</Typography.Text>
-                      <Typography.Text type="secondary">
-                        {watchedScreenName} ({watchedScreenId})
-                      </Typography.Text>
-                    </Space>
-                  ),
-                  extra: (
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        danger
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          confirmDeleteScreen(form.getFieldValue('screenId'));
-                        }}
-                      >
-                        Delete screen
-                      </Button>
-                      <Button
-                        size="small"
-                        type="primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          save();
-                        }}
-                      >
-                        Save screen
-                      </Button>
-                    </Space>
-                  ),
-                  children: (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 24,
-                        width: '100%',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <Form.Item
-                        name="screenId"
-                        label="Screen ID"
-                        rules={[{ required: true }]}
-                        style={{ minWidth: 200, marginBottom: 0 }}
-                      >
-                        <Input />
-                      </Form.Item>
-                      <Form.Item
-                        name="name"
-                        label="Screen Name"
-                        rules={[{ required: true }]}
-                        style={{ minWidth: 240, marginBottom: 0 }}
-                      >
-                        <Input />
-                      </Form.Item>
-                    </div>
-                  ),
-                },
-              ]}
-            />
+            >
+              <Space size={16} wrap>
+                <Typography.Text>
+                  <strong>Menu</strong> {watchedMenuName} ({watchedMenuId})
+                </Typography.Text>
+                <Typography.Text>
+                  <strong>Screen</strong> {watchedScreenName} ({watchedScreenId})
+                </Typography.Text>
+              </Space>
+              <Space size={8}>
+                <Button onClick={openMenuSettings}>Menu settings</Button>
+                <Button onClick={openScreenSettings}>Screen settings</Button>
+              </Space>
+            </div>
+            <Modal
+              open={settingsModal?.type === 'menu'}
+              title={settingsModal?.type === 'menu' && settingsModal.mode !== 'edit' ? 'New menu' : 'Menu settings'}
+              width={760}
+              onCancel={() => setSettingsModal(null)}
+              footer={
+                <Space>
+                  {settingsModal?.type === 'menu' && settingsModal.mode === 'edit' && (
+                    <Button danger onClick={() => confirmDeleteMenu(settingsForm.getFieldValue('menuId'))}>
+                      Delete menu
+                    </Button>
+                  )}
+                  <Button onClick={() => setSettingsModal(null)}>Cancel</Button>
+                  <Button type="primary" onClick={saveMenuSettings}>
+                    Save menu
+                  </Button>
+                </Space>
+              }
+            >
+              <Form form={settingsForm} layout="vertical">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 16,
+                  }}
+                >
+                  <Form.Item name="menuId" label="Menu ID" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="menuName" label="Menu Name" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="menuParentId" label="Parent Menu ID">
+                    <Input placeholder="empty for root" />
+                  </Form.Item>
+                  <Form.Item name="menuTargetType" label="Menu Type" rules={[{ required: true }]}>
+                    <Select
+                      options={[
+                        { value: 'screen', label: 'Screen' },
+                        { value: 'folder', label: 'Folder' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item name="menuOpenMode" label="Open Mode" rules={[{ required: true }]}>
+                    <Select
+                      options={[
+                        { value: 'inline', label: 'Inline' },
+                        { value: 'popup', label: 'Popup' },
+                      ]}
+                    />
+                  </Form.Item>
+                </div>
+              </Form>
+            </Modal>
+            <Modal
+              open={settingsModal?.type === 'screen'}
+              title="Screen settings"
+              width={760}
+              onCancel={() => setSettingsModal(null)}
+              footer={
+                <Space>
+                  <Button danger onClick={() => confirmDeleteScreen(settingsForm.getFieldValue('screenId'))}>
+                    Delete screen
+                  </Button>
+                  <Button onClick={() => setSettingsModal(null)}>Cancel</Button>
+                  <Button type="primary" onClick={saveScreenSettings}>
+                    Save screen
+                  </Button>
+                </Space>
+              }
+            >
+              <Form form={settingsForm} layout="vertical">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 16,
+                  }}
+                >
+                  <Form.Item name="screenId" label="Screen ID" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="name" label="Screen Name" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="allowRuntimePersonalization"
+                    label="Runtime Edit"
+                    valuePropName="checked"
+                  >
+                    <Checkbox>Allow layout personalization</Checkbox>
+                  </Form.Item>
+                  <Form.Item name="isInitialScreen" label="Initial Screen" valuePropName="checked">
+                    <Checkbox>Open on runtime login</Checkbox>
+                  </Form.Item>
+                </div>
+              </Form>
+            </Modal>
           </Form>
 
           <Tabs
@@ -2651,7 +3797,10 @@ function App() {
                                 zIndex: c.zIndex ?? 1,
                                 boxSizing: 'border-box',
                                 padding: 8,
-                                border: '1px solid #cfd7e3',
+                                border:
+                                  selectedComponentIds.includes(c.id)
+                                    ? '2px solid #1677ff'
+                                    : '1px solid #cfd7e3',
                                 borderRadius: 8,
                                 background: '#fff',
                                 boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
@@ -2659,6 +3808,10 @@ function App() {
                                 touchAction: 'none',
                               }}
                               onPointerDown={(e) => onItemPointerDown(e, c)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectComponent(c.id, e.ctrlKey || e.metaKey || e.shiftKey);
+                              }}
                               onPointerMove={onItemPointerMove}
                               onPointerUp={onItemPointerUp}
                               onPointerCancel={onItemPointerUp}
@@ -2743,6 +3896,59 @@ function App() {
                             );
                           })
                       )}
+                      {dragGuide && (
+                        <>
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: dragGuide.x,
+                              top: 0,
+                              bottom: 0,
+                              width: 1,
+                              background: '#1677ff',
+                              pointerEvents: 'none',
+                              zIndex: 999,
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              top: dragGuide.y,
+                              height: 1,
+                              background: '#1677ff',
+                              pointerEvents: 'none',
+                              zIndex: 999,
+                            }}
+                          />
+                        </>
+                      )}
+                      {actionBindingLines.length > 0 && (
+                        <svg
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            pointerEvents: 'none',
+                            zIndex: 998,
+                          }}
+                        >
+                          {actionBindingLines.map((line, index) => (
+                            <line
+                              key={index}
+                              x1={line.from.x}
+                              y1={line.from.y}
+                              x2={line.to.x}
+                              y2={line.to.y}
+                              stroke={line.color}
+                              strokeWidth="2"
+                              strokeDasharray="6 4"
+                            />
+                          ))}
+                        </svg>
+                      )}
                     </div>
                   </div>
                 ),
@@ -2767,6 +3973,37 @@ function App() {
                   </Space>
                 ),
               },
+              {
+                key: 'preview',
+                label: 'Preview',
+                children: (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <Typography.Title level={5} style={{ margin: 0 }}>
+                        Runtime Preview
+                      </Typography.Title>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setPreviewInputValues({});
+                          setPreviewGridRows({});
+                        }}
+                      >
+                        Reset preview
+                      </Button>
+                    </Space>
+                    <PreviewRenderer
+                      components={components}
+                      inputValues={previewInputValues}
+                      gridRows={previewGridRows}
+                      onInputChange={(componentId, value) =>
+                        setPreviewInputValues((prev) => ({ ...prev, [componentId]: value }))
+                      }
+                      onAction={executePreviewAction}
+                    />
+                  </Space>
+                ),
+              },
             ]}
           />
 
@@ -2787,6 +4024,11 @@ function App() {
               Actions
             </Typography.Title>
             <Space size={6}>
+              {hasUnsavedChanges && (
+                <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                  Unsaved changes
+                </Typography.Text>
+              )}
               <Button size="small" onClick={() => setFormatsModalOpen(true)}>
                 Formats ({communicationFormats.length})
               </Button>
@@ -2798,6 +4040,107 @@ function App() {
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
             Drag a component ID chip from the canvas into a binding box.
           </Typography.Paragraph>
+          <Card
+            size="small"
+            title={
+              selectedComponents.length > 1
+                ? `Selected Components (${selectedComponents.length})`
+                : 'Selected Component'
+            }
+            extra={
+              selectedComponent ? (
+                <Button size="small" onClick={() => setEditingComponentId(selectedComponent.id)}>
+                  Edit
+                </Button>
+              ) : null
+            }
+            style={{ marginBottom: 12 }}
+          >
+            {selectedComponent ? (
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                {selectedComponents.length > 1 && (
+                  <Space size={6} wrap>
+                    <Button size="small" onClick={() => alignSelectedComponents('left')}>
+                      Align left
+                    </Button>
+                    <Button size="small" onClick={() => alignSelectedComponents('top')}>
+                      Align top
+                    </Button>
+                    <Button size="small" onClick={distributeSelectedComponents}>
+                      Distribute
+                    </Button>
+                    <Button size="small" onClick={() => alignSelectedComponents('sameWidth')}>
+                      Same width
+                    </Button>
+                  </Space>
+                )}
+                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <Typography.Text strong>{selectedComponent.id}</Typography.Text>
+                  <Typography.Text type="secondary">{selectedComponent.type}</Typography.Text>
+                </Space>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    addonBefore="x"
+                    type="number"
+                    value={effectiveLayout(selectedComponent).x}
+                    onChange={(e) =>
+                      updateComponentLayout(selectedComponent.id, {
+                        x: Number(e.target.value) || 0,
+                      })
+                    }
+                  />
+                  <Input
+                    addonBefore="y"
+                    type="number"
+                    value={effectiveLayout(selectedComponent).y}
+                    onChange={(e) =>
+                      updateComponentLayout(selectedComponent.id, {
+                        y: Number(e.target.value) || 0,
+                      })
+                    }
+                  />
+                </Space.Compact>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    addonBefore="w"
+                    type="number"
+                    value={effectiveLayout(selectedComponent).w}
+                    onChange={(e) =>
+                      updateComponentLayout(selectedComponent.id, {
+                        width: Number(e.target.value) || minSize(selectedComponent.type).w,
+                      })
+                    }
+                  />
+                  <Input
+                    addonBefore="h"
+                    type="number"
+                    value={effectiveLayout(selectedComponent).h}
+                    onChange={(e) =>
+                      updateComponentLayout(selectedComponent.id, {
+                        height: Number(e.target.value) || minSize(selectedComponent.type).h,
+                      })
+                    }
+                  />
+                </Space.Compact>
+                <Input
+                  addonBefore="z"
+                  type="number"
+                  value={selectedComponent.zIndex ?? 1}
+                  onChange={(e) =>
+                    setComponents((prev) =>
+                      prev.map((component) =>
+                        component.id === selectedComponent.id
+                          ? { ...component, zIndex: Number(e.target.value) || 1 }
+                          : component,
+                      ),
+                    )
+                  }
+                />
+              </Space>
+            ) : (
+              <Typography.Text type="secondary">Select a component on the canvas.</Typography.Text>
+            )}
+          </Card>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {communications.map((comm) => {
               const selectedFormat =
@@ -2831,7 +4174,15 @@ function App() {
                   key={comm.id}
                   size="small"
                   title={comm.name || comm.id}
-                  style={{ borderRadius: 8, borderColor: '#e5e7eb' }}
+                  onMouseEnter={() => setSelectedActionId(comm.id)}
+                  onMouseLeave={() =>
+                    setSelectedActionId((current) => (current === comm.id ? null : current))
+                  }
+                  onClick={() => setSelectedActionId(comm.id)}
+                  style={{
+                    borderRadius: 8,
+                    borderColor: selectedActionId === comm.id ? '#1677ff' : '#e5e7eb',
+                  }}
                   extra={
                     <Space size={4}>
                       <Button size="small" type="primary" onClick={() => saveAction(comm.id)}>
@@ -2941,8 +4292,11 @@ function App() {
                                 onDrop={(e) => {
                                   const dropped = readDroppedComponent(e, [
                                     'Input',
+                                    'TextArea',
+                                    'NumberInput',
                                     'Select',
                                     'Checkbox',
+                                    'Switch',
                                     'DatePicker',
                                   ]);
                                   if (dropped) bindInputComponent(comm.id, index, dropped.id);
@@ -3065,6 +4419,44 @@ function App() {
                       }
                     />
                   )}
+                  {editingComponent.type === 'TextArea' && (
+                    <Input
+                      addonBefore="Placeholder"
+                      value={(editingComponent.props?.placeholder as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { placeholder: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'NumberInput' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Placeholder"
+                        value={(editingComponent.props?.placeholder as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { placeholder: e.target.value })
+                        }
+                      />
+                      <Space.Compact style={{ width: '100%' }}>
+                        <InputNumber
+                          addonBefore="Min"
+                          value={typeof editingComponent.props?.min === 'number' ? editingComponent.props.min : null}
+                          onChange={(value) =>
+                            updateComponentProps(editingComponent.id, { min: value ?? undefined })
+                          }
+                          style={{ width: '50%' }}
+                        />
+                        <InputNumber
+                          addonBefore="Max"
+                          value={typeof editingComponent.props?.max === 'number' ? editingComponent.props.max : null}
+                          onChange={(value) =>
+                            updateComponentProps(editingComponent.id, { max: value ?? undefined })
+                          }
+                          style={{ width: '50%' }}
+                        />
+                      </Space.Compact>
+                    </Space>
+                  )}
                   {editingComponent.type === 'Select' && (
                     <Space direction="vertical" size={8} style={{ width: '100%' }}>
                       <Input
@@ -3136,6 +4528,23 @@ function App() {
                       </Checkbox>
                     </Space>
                   )}
+                  {editingComponent.type === 'Switch' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Label"
+                        value={(editingComponent.props?.label as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { label: e.target.value })
+                        }
+                      />
+                      <Switch
+                        checked={Boolean(editingComponent.props?.checked)}
+                        onChange={(checked) =>
+                          updateComponentProps(editingComponent.id, { checked })
+                        }
+                      />
+                    </Space>
+                  )}
                   {editingComponent.type === 'DatePicker' && (
                     <Input
                       addonBefore="Placeholder"
@@ -3153,6 +4562,105 @@ function App() {
                         updateComponentProps(editingComponent.id, { text: e.target.value })
                       }
                     />
+                  )}
+                  {editingComponent.type === 'Divider' && (
+                    <Input
+                      addonBefore="Text"
+                      value={(editingComponent.props?.text as string) ?? ''}
+                      onChange={(e) =>
+                        updateComponentProps(editingComponent.id, { text: e.target.value })
+                      }
+                    />
+                  )}
+                  {editingComponent.type === 'Alert' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Message"
+                        value={(editingComponent.props?.message as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { message: e.target.value })
+                        }
+                      />
+                      <Input
+                        addonBefore="Description"
+                        value={(editingComponent.props?.description as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { description: e.target.value })
+                        }
+                      />
+                      <Select
+                        value={(editingComponent.props?.alertType as string) ?? 'info'}
+                        options={[
+                          { value: 'info', label: 'Info' },
+                          { value: 'success', label: 'Success' },
+                          { value: 'warning', label: 'Warning' },
+                          { value: 'error', label: 'Error' },
+                        ]}
+                        onChange={(alertType) =>
+                          updateComponentProps(editingComponent.id, { alertType })
+                        }
+                      />
+                    </Space>
+                  )}
+                  {editingComponent.type === 'Card' && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Title"
+                        value={(editingComponent.props?.title as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { title: e.target.value })
+                        }
+                      />
+                      <Input
+                        addonBefore="Value"
+                        value={(editingComponent.props?.value as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { value: e.target.value })
+                        }
+                      />
+                      <Input
+                        addonBefore="Description"
+                        value={(editingComponent.props?.description as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { description: e.target.value })
+                        }
+                      />
+                    </Space>
+                  )}
+                  {(
+                    editingComponent.type === 'BarChart' ||
+                    editingComponent.type === 'LineChart' ||
+                    editingComponent.type === 'PieChart' ||
+                    editingComponent.type === 'DataMap'
+                  ) && (
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Input
+                        addonBefore="Title"
+                        value={(editingComponent.props?.title as string) ?? ''}
+                        onChange={(e) =>
+                          updateComponentProps(editingComponent.id, { title: e.target.value })
+                        }
+                      />
+                      <Typography.Text strong>Data JSON</Typography.Text>
+                      <Input.TextArea
+                        key={`${editingComponent.id}-chart-data-${JSON.stringify(editingComponent.props?.data)}`}
+                        rows={8}
+                        defaultValue={JSON.stringify(editingComponent.props?.data ?? [], null, 2)}
+                        onBlur={(e) => {
+                          try {
+                            const parsed = JSON.parse(e.target.value);
+                            if (!Array.isArray(parsed)) {
+                              message.error('Chart data must be a JSON array.');
+                              return;
+                            }
+                            updateComponentProps(editingComponent.id, { data: parsed });
+                          } catch {
+                            message.error('Invalid chart data JSON.');
+                          }
+                        }}
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}
+                      />
+                    </Space>
                   )}
                   {editingComponent.type === 'AgGrid' && (
                     <Tabs

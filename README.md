@@ -9,17 +9,41 @@ Metadata-driven MVP for designing and running simple web screens.
 
 ## Metadata Shape
 Screens are saved as JSON with:
-- `components`: visual components such as `Text`, `Input`, `Select`, `Checkbox`, `DatePicker`, `Button`, and `AgGrid`.
+- `components`: visual components such as text, form inputs, action buttons, dividers, alerts, grids, charts, data maps, and cards.
 - `communications`: action definitions that connect input components to backend calls and response rows to output components.
+- `allowRuntimePersonalization`: when true, the runtime lets users move components and save their personal layout locally.
+- `isInitialScreen`: when true, the runtime opens the linked menu automatically after login. The backend keeps only one screen marked as initial.
 
 Supported MVP component types:
 - `Text`: static label text.
 - `Input`: text input.
+- `TextArea`: multi-line text input.
+- `NumberInput`: numeric input with optional `props.min` and `props.max`.
 - `Select`: option input with `props.options`.
 - `Checkbox`: boolean input.
+- `Switch`: boolean toggle input.
 - `DatePicker`: date input stored as a date string.
 - `Button`: action trigger.
+- `Divider`: visual section separator using `props.text`.
+- `Alert`: status message using `props.message`, `props.description`, and `props.alertType`.
 - `AgGrid`: tabular data output/input.
+- `BarChart`: bar chart using `props.title` and `props.data`.
+- `LineChart`: line chart using `props.title` and `props.data`.
+- `PieChart`: pie chart using `props.title` and `props.data`.
+- `DataMap`: heat-map style data blocks using `props.title` and `props.data`.
+- `Card`: metric card using `props.title`, `props.value`, and `props.description`.
+
+Chart and data-map components use simple data rows:
+
+```json
+{
+  "title": "Monthly Trend",
+  "data": [
+    { "label": "Jan", "value": 18 },
+    { "label": "Feb", "value": 32 }
+  ]
+}
+```
 
 Grid column metadata supports:
 - `field`: row object field name.
@@ -46,6 +70,14 @@ Menus are saved independently and can be nested:
 - `targetType`: `folder` for grouping or `screen` for a menu that opens a screen.
 - `screenId`: required when `targetType` is `screen`.
 - `openMode`: `inline` opens in the runtime content area, `popup` opens the screen in a modal.
+
+## Designer Behavior
+- `New screen menu`, `New folder`, `Menu settings`, and `Screen settings` open a modal editor first.
+- The main designer state is not changed while those modals are open.
+- `Cancel`, the modal close button, or clicking outside the modal leaves the current menu/screen unchanged.
+- Saving the modal applies the edited values to the designer state and persists the related menu or screen metadata.
+- Action input bindings currently accept `Input`, `TextArea`, `NumberInput`, `Select`, `Checkbox`, `Switch`, and `DatePicker`.
+- Action output bindings currently target `AgGrid`.
 
 Example communication:
 ```json

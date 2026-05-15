@@ -32,17 +32,6 @@ public class MenuController {
   public List<Map<String, String>> menus() throws IOException {
     ensureMenuDir();
     List<Map<String, String>> rows = new ArrayList<>();
-    if (!Files.exists(menuPath("m1"))) {
-      rows.add(Map.of(
-        "id", "m1",
-        "name", "Sample Screen",
-        "screenId", "sample-screen",
-        "parentId", "",
-        "targetType", "screen",
-        "openMode", "inline"
-      ));
-    }
-
     try (var stream = Files.list(menuDir)) {
       stream
         .filter(path -> path.getFileName().toString().endsWith(".json"))
@@ -69,6 +58,9 @@ public class MenuController {
     if ("screen".equals(targetType) && !isValidId(screenId)) {
       return ResponseEntity.badRequest().body(Map.of("error", "screen menus require a valid screenId"));
     }
+    if (!"screen".equals(targetType)) {
+      screenId = "";
+    }
 
     try {
       Map<String, String> row = new LinkedHashMap<>();
@@ -83,6 +75,9 @@ public class MenuController {
       if (!previousId.isBlank() && !previousId.equals(id)) {
         updateChildParentIds(previousId, id);
         Files.deleteIfExists(menuPath(previousId));
+      }
+      if ("screen".equals(targetType)) {
+        deleteDuplicateScreenMenus(screenId, id);
       }
       return ResponseEntity.ok(Map.of("ok", true));
     } catch (IOException e) {
@@ -132,6 +127,19 @@ public class MenuController {
         if (oldParentId.equals(row.get("parentId"))) {
           row.put("parentId", newParentId);
           objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), row);
+        }
+      }
+    }
+  }
+
+  private void deleteDuplicateScreenMenus(String screenId, String keepId) throws IOException {
+    ensureMenuDir();
+    try (var stream = Files.list(menuDir)) {
+      for (Path path : stream.filter(item -> item.getFileName().toString().endsWith(".json")).toList()) {
+        Map<String, String> row = objectMapper.readValue(path.toFile(), new TypeReference<>() {});
+        String id = row.get("id");
+        if (!keepId.equals(id) && screenId.equals(row.get("screenId"))) {
+          Files.deleteIfExists(path);
         }
       }
     }

@@ -33,10 +33,6 @@ public class ScreenController {
   public List<Map<String, Object>> list() throws IOException {
     ensureScreenDir();
     List<Map<String, Object>> rows = new ArrayList<>();
-    if (!Files.exists(screenPath("sample-screen"))) {
-      rows.add(Map.of("screenId", "sample-screen", "name", "Sample Screen"));
-    }
-
     try (var stream = Files.list(screenDir)) {
       stream
         .filter(path -> path.getFileName().toString().endsWith(".json"))
@@ -69,11 +65,16 @@ public class ScreenController {
       Map<String, Object> row = new LinkedHashMap<>();
       row.put("screenId", screenId);
       row.put("name", body.getOrDefault("name", ""));
+      row.put("allowRuntimePersonalization", Boolean.TRUE.equals(body.get("allowRuntimePersonalization")));
+      row.put("isInitialScreen", Boolean.TRUE.equals(body.get("isInitialScreen")));
       row.put("components", components);
       row.put("communications", communications);
 
       ensureScreenDir();
       objectMapper.writerWithDefaultPrettyPrinter().writeValue(screenPath(screenId).toFile(), row);
+      if (Boolean.TRUE.equals(row.get("isInitialScreen"))) {
+        clearOtherInitialScreens(screenId);
+      }
       return ResponseEntity.ok(Map.of("ok", true));
     } catch (Exception e) {
       return ResponseEntity.badRequest().body(Map.of("error", "invalid json"));
@@ -89,10 +90,7 @@ public class ScreenController {
     if (Files.exists(path)) {
       return ResponseEntity.ok(objectMapper.readValue(path.toFile(), new TypeReference<Map<String, Object>>() {}));
     }
-    if (!"sample-screen".equals(screenId)) {
-      return ResponseEntity.ok(Map.of("screenId", screenId, "components", List.of(), "communications", List.of()));
-    }
-    return ResponseEntity.ok(sampleScreen());
+    return ResponseEntity.ok(Map.of("screenId", screenId, "components", List.of(), "communications", List.of()));
   }
 
   @DeleteMapping("/{screenId}")
@@ -113,47 +111,29 @@ public class ScreenController {
       Map<String, Object> screen = objectMapper.readValue(path.toFile(), new TypeReference<>() {});
       rows.add(Map.of(
         "screenId", screen.getOrDefault("screenId", ""),
-        "name", screen.getOrDefault("name", "")
+        "name", screen.getOrDefault("name", ""),
+        "allowRuntimePersonalization", screen.getOrDefault("allowRuntimePersonalization", false),
+        "isInitialScreen", screen.getOrDefault("isInitialScreen", false)
       ));
     } catch (IOException ignored) {
       // Ignore broken MVP data files so one bad file does not break the designer list.
     }
   }
 
-  private Map<String, Object> sampleScreen() {
-    return Map.of(
-      "screenId", "sample-screen",
-      "name", "Sample Screen",
-      "communications", List.of(
-        Map.of(
-          "id", "searchUsers",
-          "name", "Search Users",
-          "formatId", "searchUsers",
-          "triggerComponentId", "button1",
-          "inputBindings", List.of(Map.of("field", "keyword", "componentId", "input1")),
-          "outputBindings", List.of(Map.of("field", "rows", "componentId", "grid1"))
-        )
-      ),
-      "components", List.of(
-        Map.of("id", "input1", "type", "Input", "props", Map.of("placeholder", "Type keyword")),
-        Map.of("id", "button1", "type", "Button", "props", Map.of("text", "Search", "actionId", "searchUsers")),
-        Map.of(
-          "id", "grid1",
-          "type", "AgGrid",
-          "props", Map.of(
-            "columnDefs", List.of(
-              Map.of("field", "id", "dataType", "number"),
-              Map.of("field", "name", "dataType", "string")
-            ),
-            "rowData", List.of(Map.of("id", 1, "name", "Alice"), Map.of("id", 2, "name", "Bob"))
-          )
-        )
-      )
-    );
-  }
-
   private void ensureScreenDir() throws IOException {
     Files.createDirectories(screenDir);
+  }
+
+  private void clearOtherInitialScreens(String screenId) throws IOException {
+    try (var stream = Files.list(screenDir)) {
+      for (Path path : stream.filter(item -> item.getFileName().toString().endsWith(".json")).toList()) {
+        Map<String, Object> screen = objectMapper.readValue(path.toFile(), new TypeReference<>() {});
+        if (!screenId.equals(screen.get("screenId")) && Boolean.TRUE.equals(screen.get("isInitialScreen"))) {
+          screen.put("isInitialScreen", false);
+          objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), screen);
+        }
+      }
+    }
   }
 
   private Path screenPath(String screenId) {

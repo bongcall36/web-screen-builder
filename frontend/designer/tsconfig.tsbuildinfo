@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx"],"version":"5.9.3"}
+{"root":["./src/componentrenderers.tsx","./src/main.tsx","./src/screentypes.ts","./src/sourceimport.ts"],"version":"5.9.3"}

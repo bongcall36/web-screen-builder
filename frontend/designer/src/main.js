@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Alert, Button, Card, Checkbox, DatePicker, Divider, Form, Input, InputNumber, Layout, List, Modal, Select, Space, Switch, Tabs, Tooltip, Tree, Typography, message, } from 'antd';
+import { Alert, Button, Card, Checkbox, DatePicker, Divider, Dropdown, Form, Input, InputNumber, Layout, List, Modal, Select, Space, Switch, Tabs, Tooltip, Tree, Typography, message, } from 'antd';
 import { CalendarOutlined, BarChartOutlined, CheckSquareOutlined, DeleteOutlined, EditOutlined, FieldNumberOutlined, FileTextOutlined, FontSizeOutlined, FormOutlined, HeatMapOutlined, LineChartOutlined, MinusOutlined, NotificationOutlined, OneToOneOutlined, PieChartOutlined, ProfileOutlined, SwitcherOutlined, TableOutlined, UnorderedListOutlined, } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import axios from 'axios';
@@ -119,9 +119,311 @@ function effectiveLayout(c) {
         h: typeof c.layout?.height === 'number' ? c.layout.height : d.h,
     };
 }
-const DEFAULT_SCREEN_ID = 'screen-1';
-const DEFAULT_SCREEN_NAME = 'Screen 1';
-const DEFAULT_MENU_ID = `menu-${DEFAULT_SCREEN_ID}`;
+function sourceTypeLabel(sourceType) {
+    if (sourceType === 'react-js')
+        return 'React JS';
+    return sourceType.toUpperCase();
+}
+function makeGeneratedId(prefix, index) {
+    return `generated-${prefix}-${index}`;
+}
+function cleanSourceLabel(value, fallback) {
+    const cleaned = (value ?? '')
+        .replace(/\{.*?\}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return cleaned || fallback;
+}
+function extractFirstString(source, keys) {
+    for (const key of keys) {
+        const pattern = new RegExp(`${key}\\s*[=:]\\s*["'\`]([^"'\`]{1,80})["'\`]`, 'i');
+        const match = source.match(pattern);
+        if (match?.[1]) {
+            return match[1];
+        }
+    }
+    return '';
+}
+function extractJsGridColumns(sourceText) {
+    const fields = new Set();
+    const patterns = [
+        /(?:dataIndex|field|key)\s*:\s*["'`]([A-Za-z0-9_.-]{1,40})["'`]/g,
+        /<Column[^>]+(?:dataIndex|field|key)=["'`]([A-Za-z0-9_.-]{1,40})["'`]/g,
+    ];
+    patterns.forEach((pattern) => {
+        for (const match of sourceText.matchAll(pattern)) {
+            if (match[1] && !['id', 'key'].includes(match[1])) {
+                fields.add(match[1]);
+            }
+        }
+    });
+    return [...fields].slice(0, 6).map((field) => ({ field }));
+}
+function inferJsComponentType(snippet) {
+    const lower = snippet.toLowerCase();
+    if (/(xtype|type)\s*:\s*["'`](grid|gridpanel|table)["'`]/.test(lower) || /<table|<aggrid|<datagrid/.test(lower)) {
+        return 'AgGrid';
+    }
+    if (/(xtype|type)\s*:\s*["'`](textarea|textareafield)["'`]/.test(lower) || /<textarea/.test(lower)) {
+        return 'TextArea';
+    }
+    if (/(xtype|type)\s*:\s*["'`](numberfield|number|numberinput)["'`]/.test(lower) || /type=["'`]number["'`]/.test(lower)) {
+        return 'NumberInput';
+    }
+    if (/(xtype|type)\s*:\s*["'`](combo|combobox|select)["'`]/.test(lower) || /<select/.test(lower)) {
+        return 'Select';
+    }
+    if (/(xtype|type)\s*:\s*["'`](checkbox|checkboxfield)["'`]/.test(lower) || /type=["'`]checkbox["'`]/.test(lower)) {
+        return 'Checkbox';
+    }
+    if (/(xtype|type)\s*:\s*["'`](datefield|datepicker)["'`]/.test(lower) || /type=["'`]date["'`]/.test(lower)) {
+        return 'DatePicker';
+    }
+    if (/(xtype|type)\s*:\s*["'`](button)["'`]/.test(lower) || /<button/.test(lower)) {
+        return 'Button';
+    }
+    if (/(xtype|type)\s*:\s*["'`](label|displayfield|text)["'`]/.test(lower)) {
+        return 'Text';
+    }
+    if (/(xtype|type)\s*:\s*["'`](textfield|input|text)["'`]/.test(lower) || /<input/.test(lower)) {
+        return 'Input';
+    }
+    if (/(fieldlabel|placeholder|name)\s*[=:]/.test(lower)) {
+        return 'Input';
+    }
+    return null;
+}
+function propsForInferredComponent(type, label, sourceText) {
+    if (type === 'Text')
+        return { text: label };
+    if (type === 'Button')
+        return { text: label };
+    if (type === 'Checkbox' || type === 'Switch')
+        return { label };
+    if (type === 'Select')
+        return { placeholder: label, options: ['Option 1', 'Option 2'] };
+    if (type === 'AgGrid') {
+        const columnDefs = extractJsGridColumns(sourceText);
+        return {
+            columnDefs: columnDefs.length > 0 ? columnDefs : [{ field: 'field1' }, { field: 'field2' }],
+            rowData: [],
+        };
+    }
+    return { placeholder: label };
+}
+function buildInferredComponents(snippets, inferType, labelKeys, sourceText) {
+    const components = [];
+    const seen = new Set();
+    const addComponent = (type, label, sourceForProps) => {
+        const dedupeKey = `${type}:${label.toLowerCase()}`;
+        if (seen.has(dedupeKey))
+            return;
+        seen.add(dedupeKey);
+        const index = components.length + 1;
+        const isWide = type === 'AgGrid' || type === 'TextArea';
+        const column = isWide ? 0 : (index - 1) % 2;
+        const row = Math.floor((index - 1) / 2);
+        const size = defaultSize(type);
+        components.push({
+            id: makeGeneratedId(type.toLowerCase(), index),
+            type,
+            layout: {
+                x: 24 + column * 300,
+                y: 24 + row * 72,
+                width: isWide ? Math.max(size.w, 560) : size.w,
+                height: type === 'AgGrid' ? 220 : size.h,
+            },
+            props: propsForInferredComponent(type, label, sourceForProps),
+            zIndex: index + 2,
+        });
+    };
+    snippets.forEach((snippet) => {
+        const type = inferType(snippet);
+        if (!type)
+            return;
+        const label = cleanSourceLabel(extractFirstString(snippet, labelKeys), type);
+        addComponent(type, label, snippet);
+    });
+    return components.slice(0, 16);
+}
+function inferJsScreenComponents(sourceText) {
+    const lines = sourceText.split(/\r?\n/);
+    const snippets = [];
+    lines.forEach((line, index) => {
+        const next = lines.slice(index, index + 4).join(' ');
+        if (inferJsComponentType(next)) {
+            snippets.push(next);
+        }
+        else if (/<(input|button|select|textarea|table)\b/i.test(line)) {
+            snippets.push(line);
+        }
+    });
+    const components = buildInferredComponents(snippets, inferJsComponentType, ['fieldLabel', 'label', 'text', 'title', 'placeholder', 'name', 'headerName'], sourceText);
+    if ((/columns\s*[:=]/i.test(sourceText) || /<Column\b/i.test(sourceText)) && !components.some((item) => item.type === 'AgGrid')) {
+        const index = components.length + 1;
+        components.push({
+            id: makeGeneratedId('aggrid', index),
+            type: 'AgGrid',
+            layout: { x: 24, y: 24 + Math.floor((index - 1) / 2) * 72, width: 560, height: 220 },
+            props: propsForInferredComponent('AgGrid', 'Result Grid', sourceText),
+            zIndex: index + 2,
+        });
+    }
+    return components.slice(0, 16);
+}
+function inferHbsComponentType(snippet) {
+    const lower = snippet.toLowerCase();
+    if (/<table|{{#each|{{each|grid|datatable/.test(lower))
+        return 'AgGrid';
+    if (/<textarea|{{textarea/.test(lower))
+        return 'TextArea';
+    if (/<select|{{select|{{combo/.test(lower))
+        return 'Select';
+    if (/type=["'`]checkbox["'`]|{{checkbox/.test(lower))
+        return 'Checkbox';
+    if (/type=["'`]date["'`]|{{date/.test(lower))
+        return 'DatePicker';
+    if (/<button|{{button/.test(lower))
+        return 'Button';
+    if (/<input[^>]+type=["'`]number["'`]|{{number/.test(lower))
+        return 'NumberInput';
+    if (/<input|{{input/.test(lower))
+        return 'Input';
+    if (/<label|<h[1-6]\b|{{label|{{title/.test(lower))
+        return 'Text';
+    return null;
+}
+function inferHbsScreenComponents(sourceText) {
+    const snippets = [
+        ...sourceText.matchAll(/<(?:input|button|select|textarea|table|label|h[1-6])\b[^>]*>(?:[^<]{0,80})?/gi),
+        ...sourceText.matchAll(/{{[#/]?(?:input|textarea|select|combo|checkbox|button|date|number|label|title|each)\b[^}]*}}/gi),
+    ].map((match) => match[0]);
+    return buildInferredComponents(snippets, inferHbsComponentType, ['label', 'aria-label', 'title', 'placeholder', 'name', 'value'], sourceText);
+}
+function inferReactComponentType(snippet) {
+    const lower = snippet.toLowerCase();
+    if (/<(aggrid|datagrid|table|grid)\b/.test(lower))
+        return 'AgGrid';
+    if (/<(textarea|input\.textarea)\b/.test(lower))
+        return 'TextArea';
+    if (/<(select|combobox)\b/.test(lower))
+        return 'Select';
+    if (/<(checkbox)\b/.test(lower) || /type=["'`]checkbox["'`]/.test(lower))
+        return 'Checkbox';
+    if (/<(switch)\b/.test(lower))
+        return 'Switch';
+    if (/<(datepicker)\b/.test(lower) || /type=["'`]date["'`]/.test(lower))
+        return 'DatePicker';
+    if (/<(button)\b/.test(lower))
+        return 'Button';
+    if (/<(inputnumber|numberinput)\b/.test(lower) || /type=["'`]number["'`]/.test(lower))
+        return 'NumberInput';
+    if (/<(input|textfield)\b/.test(lower))
+        return 'Input';
+    if (/<(typography\.text|label|span|h[1-6])\b/.test(lower))
+        return 'Text';
+    return null;
+}
+function inferReactScreenComponents(sourceText) {
+    const snippets = [
+        ...sourceText.matchAll(/<(?:Input\.TextArea|Typography\.Text|InputNumber|NumberInput|DatePicker|AgGrid|DataGrid|TextField|Input|Button|Select|Checkbox|Switch|Table|Grid|label|span|h[1-6])\b[^>]*(?:>(?:[^<]{0,80})?)?/g),
+        ...sourceText.matchAll(/<Column\b[^>]*\/?>/g),
+    ].map((match) => match[0]);
+    const components = buildInferredComponents(snippets, inferReactComponentType, ['label', 'aria-label', 'title', 'placeholder', 'name', 'children', 'headerName', 'dataIndex'], sourceText);
+    if ((/columns\s*[:=]/i.test(sourceText) || /<Column\b/i.test(sourceText)) && !components.some((item) => item.type === 'AgGrid')) {
+        const index = components.length + 1;
+        components.push({
+            id: makeGeneratedId('aggrid', index),
+            type: 'AgGrid',
+            layout: { x: 24, y: 24 + Math.floor((index - 1) / 2) * 72, width: 560, height: 220 },
+            props: propsForInferredComponent('AgGrid', 'Result Grid', sourceText),
+            zIndex: index + 2,
+        });
+    }
+    return components.slice(0, 16);
+}
+function makeFallbackSourceScreenDraft(sourceType, sourceText) {
+    const lineCount = sourceText.trim() ? sourceText.split(/\r?\n/).length : 0;
+    const charCount = sourceText.length;
+    const label = sourceTypeLabel(sourceType);
+    return {
+        sourceType,
+        lineCount,
+        charCount,
+        summaryTitle: `${label} Source Screen Draft`,
+        summaryMessage: 'Source pasted',
+        summaryDescription: `${lineCount} lines / ${charCount} characters. Parser hook is ready for the next step.`,
+        components: [
+            {
+                id: 'generated-summary',
+                type: 'Alert',
+                layout: { x: 24, y: 76, width: 520, height: 88 },
+                props: {
+                    alertType: 'info',
+                    message: 'Source pasted',
+                    description: `${lineCount} lines / ${charCount} characters. 변환 로직은 다음 단계에서 연결됩니다.`,
+                },
+                zIndex: 2,
+            },
+            {
+                id: 'generated-input',
+                type: 'Input',
+                layout: { x: 24, y: 24, width: 280, height: 40 },
+                props: { placeholder: 'Detected field placeholder' },
+                zIndex: 1,
+            },
+            {
+                id: 'generated-action',
+                type: 'Button',
+                layout: { x: 320, y: 24, width: 140, height: 40 },
+                props: { text: 'Action' },
+                zIndex: 2,
+            },
+            {
+                id: 'generated-grid',
+                type: 'AgGrid',
+                layout: { x: 24, y: 88, width: 560, height: 220 },
+                props: {
+                    columnDefs: [{ field: 'source' }, { field: 'status' }],
+                    rowData: [
+                        { source: label, status: 'Ready for parser' },
+                        { source: 'Screen builder', status: 'Preview only' },
+                    ],
+                },
+                zIndex: 3,
+            },
+        ],
+    };
+}
+function makeSourceScreenDraft(sourceType, sourceText) {
+    const lineCount = sourceText.trim() ? sourceText.split(/\r?\n/).length : 0;
+    const charCount = sourceText.length;
+    const label = sourceTypeLabel(sourceType);
+    const inferredComponents = sourceType === 'js'
+        ? inferJsScreenComponents(sourceText)
+        : sourceType === 'hbs'
+            ? inferHbsScreenComponents(sourceText)
+            : inferReactScreenComponents(sourceText);
+    const bodyComponents = inferredComponents.length > 0
+        ? inferredComponents
+        : makeFallbackSourceScreenDraft(sourceType, sourceText).components.slice(1);
+    const parsedMessage = sourceType === 'js'
+        ? 'JS source parsed'
+        : sourceType === 'hbs'
+            ? 'HBS source parsed'
+            : 'React JS source parsed';
+    return {
+        sourceType,
+        lineCount,
+        charCount,
+        summaryTitle: `${label} Source Screen Draft`,
+        summaryMessage: inferredComponents.length > 0 ? parsedMessage : 'Source pasted',
+        summaryDescription: inferredComponents.length > 0
+            ? `${lineCount} lines / ${charCount} characters. ${inferredComponents.length} ${sourceTypeLabel(sourceType)} component candidates detected.`
+            : `${lineCount} lines / ${charCount} characters. No ${sourceTypeLabel(sourceType)} UI patterns detected yet.`,
+        components: bodyComponents,
+    };
+}
 const DEFAULT_COMPONENTS = [];
 const DEFAULT_COMMUNICATIONS = [];
 const DEFAULT_COMMUNICATION_FORMATS = [
@@ -574,6 +876,36 @@ function CanvasPreview({ item, }) {
     }
     return null;
 }
+function SourceDraftCanvas({ draft, height, }) {
+    return (_jsx("div", { style: {
+            position: 'relative',
+            height,
+            minHeight: height,
+            width: '100%',
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            backgroundColor: '#fbfcfe',
+            backgroundSize: `${GRID}px ${GRID}px`,
+            backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+            boxSizing: 'border-box',
+        }, children: !draft ? (_jsx(Typography.Paragraph, { type: "secondary", style: { margin: 16 }, children: "Paste source and click Generate draft to show a screen draft here." })) : (draft.components.map((component) => {
+            const layout = effectiveLayout(component);
+            return (_jsx("div", { style: {
+                    position: 'absolute',
+                    left: layout.x,
+                    top: layout.y,
+                    width: layout.w,
+                    height: layout.h,
+                    zIndex: component.zIndex ?? 1,
+                    boxSizing: 'border-box',
+                    padding: 8,
+                    border: '1px solid #cfd7e3',
+                    borderRadius: 8,
+                    background: '#fff',
+                    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+                }, children: _jsx(CanvasPreview, { item: component }) }, component.id));
+        })) }));
+}
 function GridEditor({ item, columnNameDrafts, onGridColumnDraftChange, onGridColumnChange, onGridColumnDataTypeChange, onGridAddColumn, onGridRemoveColumn, onGridSaveRows, onGridCellChange, onGridAddRow, onGridRemoveRow, }) {
     const cols = getVisibleGridColumns(item);
     const rows = getGridRows(item);
@@ -753,10 +1085,10 @@ function App() {
     const [form] = Form.useForm();
     const [settingsForm] = Form.useForm();
     const [token, setToken] = useState('');
-    const watchedScreenId = Form.useWatch('screenId', form) ?? DEFAULT_SCREEN_ID;
-    const watchedScreenName = Form.useWatch('name', form) ?? DEFAULT_SCREEN_NAME;
-    const watchedMenuId = Form.useWatch('menuId', form) ?? DEFAULT_MENU_ID;
-    const watchedMenuName = Form.useWatch('menuName', form) ?? DEFAULT_SCREEN_NAME;
+    const watchedScreenId = Form.useWatch('screenId', { form, preserve: true }) ?? '';
+    const watchedScreenName = Form.useWatch('name', { form, preserve: true }) ?? '';
+    const watchedMenuId = Form.useWatch('menuId', { form, preserve: true }) ?? '';
+    const watchedMenuName = Form.useWatch('menuName', { form, preserve: true }) ?? '';
     const [screens, setScreens] = useState([]);
     const [menus, setMenus] = useState([]);
     const [components, setComponents] = useState(DEFAULT_COMPONENTS);
@@ -764,9 +1096,15 @@ function App() {
     const [communicationFormats, setCommunicationFormats] = useState(DEFAULT_COMMUNICATION_FORMATS);
     const [jsonTab, setJsonTab] = useState('visual');
     const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify({ components: DEFAULT_COMPONENTS, communications: DEFAULT_COMMUNICATIONS.map(stripScreenCommunication) }, null, 2));
+    const [sourceInputType, setSourceInputType] = useState('js');
+    const [sourceInputText, setSourceInputText] = useState('');
+    const [sourceScreenDraft, setSourceScreenDraft] = useState(null);
+    const [sourceDraftModalOpen, setSourceDraftModalOpen] = useState(false);
+    const [aiDraftLoading, setAiDraftLoading] = useState(false);
     const [columnNameDrafts, setColumnNameDrafts] = useState({});
     const [settingsModal, setSettingsModal] = useState(null);
-    const [editingMenuId, setEditingMenuId] = useState(DEFAULT_MENU_ID);
+    const [screenPickerOpen, setScreenPickerOpen] = useState(false);
+    const [editingMenuId, setEditingMenuId] = useState('');
     const [formatsModalOpen, setFormatsModalOpen] = useState(false);
     const [metadataRevision, setMetadataRevision] = useState(0);
     const [expandedMenuKeys, setExpandedMenuKeys] = useState([]);
@@ -784,12 +1122,25 @@ function App() {
     const dragInfoRef = useRef(null);
     const resizeInfoRef = useRef(null);
     const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
+    const visibleScreens = useMemo(() => {
+        const selectedScreen = screens.find((screen) => screen.screenId === watchedScreenId);
+        if (selectedScreen) {
+            return [selectedScreen];
+        }
+        return screens.slice(-1);
+    }, [screens, watchedScreenId]);
     const selectedFormat = communicationFormats.find((format) => format.id === selectedFormatId) ??
         communicationFormats[0];
     const selectedComponent = components.find((component) => component.id === selectedComponentId);
     const selectedComponents = components.filter((component) => selectedComponentIds.includes(component.id));
     const editingComponent = components.find((component) => component.id === editingComponentId);
     const selectedAction = communications.find((comm) => comm.id === selectedActionId);
+    const hasSelectedScreen = Boolean(watchedScreenId);
+    const hasSelectedMenu = Boolean(watchedMenuId);
+    const sourceDraftCanvasHeight = Math.max(620, ...(sourceScreenDraft?.components ?? []).map((component) => {
+        const layout = effectiveLayout(component);
+        return layout.y + layout.h + 32;
+    }));
     const actionBindingLines = useMemo(() => {
         if (!selectedAction)
             return [];
@@ -827,12 +1178,12 @@ function App() {
     }), [components, communications, communicationFormats, form, formRevision]);
     const hasUnsavedChanges = savedSnapshot !== '' && savedSnapshot !== currentSnapshot;
     const currentFormValues = () => ({
-        screenId: form.getFieldValue('screenId'),
-        name: form.getFieldValue('name'),
+        screenId: form.getFieldValue('screenId') ?? '',
+        name: form.getFieldValue('name') ?? '',
         allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
         isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
-        menuId: form.getFieldValue('menuId'),
-        menuName: form.getFieldValue('menuName'),
+        menuId: form.getFieldValue('menuId') ?? '',
+        menuName: form.getFieldValue('menuName') ?? '',
         menuParentId: form.getFieldValue('menuParentId') ?? '',
         menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
         menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
@@ -859,23 +1210,24 @@ function App() {
             allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
             isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
         });
-        setSettingsModal({ type: 'screen' });
+        setSettingsModal({ type: 'screen', mode: 'edit' });
     };
     const syncJsonDraftFromComponents = useCallback(() => {
         setJsonDraft(JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2));
     }, [components, communications]);
-    const captureSavedSnapshot = useCallback(() => {
+    const captureSavedSnapshot = useCallback((formValues) => {
+        const values = { ...currentFormValues(), ...formValues };
         setSavedSnapshot(JSON.stringify({
             form: {
-                screenId: form.getFieldValue('screenId'),
-                name: form.getFieldValue('name'),
-                allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
-                isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
-                menuId: form.getFieldValue('menuId'),
-                menuName: form.getFieldValue('menuName'),
-                menuParentId: form.getFieldValue('menuParentId') ?? '',
-                menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
-                menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+                screenId: values.screenId,
+                name: values.name,
+                allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+                isInitialScreen: Boolean(values.isInitialScreen),
+                menuId: values.menuId,
+                menuName: values.menuName,
+                menuParentId: values.menuParentId ?? '',
+                menuTargetType: values.menuTargetType ?? 'screen',
+                menuOpenMode: values.menuOpenMode ?? 'inline',
             },
             components,
             communications: communications.map(stripScreenCommunication),
@@ -931,7 +1283,7 @@ function App() {
             })), nextComponents);
             const name = res.data.name || screenId;
             const linkedMenu = menuOverride ?? menus.find((menu) => menu.screenId === screenId);
-            form.setFieldsValue({
+            applyFormValues({
                 screenId,
                 name,
                 allowRuntimePersonalization: Boolean(res.data.allowRuntimePersonalization),
@@ -974,7 +1326,7 @@ function App() {
         }
     };
     const loadMenu = async (menu) => {
-        form.setFieldsValue({
+        applyFormValues({
             menuId: menu.id,
             menuName: menu.name,
             menuParentId: menu.parentId ?? '',
@@ -991,9 +1343,32 @@ function App() {
         message.info('Loaded menu node. Folder menus do not open a screen.');
     };
     const resetDesignerToBlank = (nextScreens = screens) => {
+        if (nextScreens.length === 0) {
+            applyFormValues({
+                screenId: '',
+                name: '',
+                allowRuntimePersonalization: false,
+                isInitialScreen: false,
+                menuId: '',
+                menuName: '',
+                menuParentId: '',
+                menuTargetType: 'screen',
+                menuOpenMode: 'inline',
+            });
+            setEditingMenuId('');
+            setComponents([]);
+            setCommunications([]);
+            setSelectedComponentId(null);
+            setSelectedComponentIds([]);
+            setColumnNameDrafts({});
+            setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+            setJsonTab('visual');
+            setSavedSnapshot('');
+            return;
+        }
         const screenId = nextScreenId(nextScreens);
         const name = `Screen ${screenId.replace('screen-', '')}`;
-        form.setFieldsValue({
+        applyFormValues({
             screenId,
             name,
             allowRuntimePersonalization: false,
@@ -1022,7 +1397,7 @@ function App() {
         try {
             await axios.delete(`http://localhost:8080/api/menus/${encodeURIComponent(menuId)}`);
             if (editingMenuId === menuId) {
-                form.setFieldsValue({
+                applyFormValues({
                     menuId: `menu-${form.getFieldValue('screenId')}`,
                     menuName: form.getFieldValue('name'),
                     menuParentId: '',
@@ -1606,6 +1981,92 @@ function App() {
             },
         ]);
     };
+    const buildSourceScreenDraft = () => {
+        if (!sourceInputText.trim()) {
+            message.warning('소스를 먼저 붙여넣어 주세요.');
+            return;
+        }
+        setSourceScreenDraft(makeSourceScreenDraft(sourceInputType, sourceInputText));
+        message.success('화면 초안이 생성되었습니다.');
+    };
+    const buildAiSourceScreenDraft = async () => {
+        if (!sourceInputText.trim()) {
+            message.warning('소스를 먼저 붙여넣어 주세요.');
+            return;
+        }
+        setAiDraftLoading(true);
+        try {
+            // TODO: Replace this mock with a backend AI endpoint call.
+            const draft = makeSourceScreenDraft(sourceInputType, sourceInputText);
+            setSourceScreenDraft({
+                ...draft,
+                summaryMessage: `AI ${draft.summaryMessage}`,
+                summaryDescription: `${draft.summaryDescription} AI endpoint hook is ready.`,
+            });
+            message.success('AI 화면 초안이 생성되었습니다.');
+        }
+        finally {
+            setAiDraftLoading(false);
+        }
+    };
+    const clearSourceScreenDraft = () => {
+        setSourceInputText('');
+        setSourceScreenDraft(null);
+    };
+    const createScreenFromSourceDraft = () => {
+        if (!sourceScreenDraft) {
+            message.warning('Generate a screen draft first.');
+            return;
+        }
+        const screenId = nextScreenId(screens);
+        const name = `${sourceTypeLabel(sourceScreenDraft.sourceType)} Generated Screen`;
+        const menuId = `menu-${screenId}`;
+        const nextComponents = sourceScreenDraft.components.map((component) => ({
+            ...component,
+            layout: component.layout ? { ...component.layout } : undefined,
+            props: component.props ? { ...component.props } : undefined,
+        }));
+        const nextValues = {
+            screenId,
+            name,
+            allowRuntimePersonalization: false,
+            isInitialScreen: false,
+            menuId,
+            menuName: name,
+            menuParentId: '',
+            menuTargetType: 'screen',
+            menuOpenMode: 'inline',
+        };
+        applyFormValues(nextValues);
+        setScreens((prev) => [
+            ...prev.filter((screen) => screen.screenId !== screenId),
+            { screenId, name, allowRuntimePersonalization: false, isInitialScreen: false },
+        ]);
+        setMenus((prev) => [
+            ...prev.filter((menu) => menu.id !== menuId),
+            {
+                id: menuId,
+                name,
+                screenId,
+                parentId: '',
+                targetType: 'screen',
+                openMode: 'inline',
+            },
+        ]);
+        setComponents(nextComponents);
+        setCommunications([]);
+        setSelectedComponentId(null);
+        setSelectedComponentIds([]);
+        setEditingComponentId(null);
+        setColumnNameDrafts({});
+        setPreviewInputValues({});
+        setPreviewGridRows({});
+        setJsonDraft(JSON.stringify({ components: nextComponents, communications: [] }, null, 2));
+        setEditingMenuId(menuId);
+        setSavedSnapshot('');
+        setJsonTab('visual');
+        message.success('Created a screen draft in Screen layout. Use Save to persist it.');
+    };
     const addCommunicationFormat = () => {
         const nextIndex = communicationFormats.length + 1;
         const id = `format${nextIndex}`;
@@ -2181,8 +2642,6 @@ function App() {
                 openMode: menuOpenMode ?? 'inline',
             });
             setEditingMenuId(menuId);
-            await loadDesignerMetadata();
-            captureSavedSnapshot();
             message.success('Saved menu');
             return true;
         }
@@ -2195,6 +2654,10 @@ function App() {
         }
     };
     const save = async () => {
+        if (!hasSelectedScreen) {
+            message.info('메뉴나 화면을 먼저 선택하거나 새로 생성하세요.');
+            return;
+        }
         try {
             await saveCurrentScreen();
             await loadDesignerMetadata();
@@ -2222,85 +2685,16 @@ function App() {
             }
         }
     };
-    const newScreen = async () => {
-        try {
-            const savedScreen = await saveCurrentScreen();
-            const screenId = nextScreenId([
-                ...screens,
-                { screenId: savedScreen.screenId, name: savedScreen.name },
-            ]);
-            const name = `Screen ${screenId.replace('screen-', '')}`;
-            await axios.post('http://localhost:8080/api/screens', {
-                screenId,
-                name,
-                allowRuntimePersonalization: false,
-                isInitialScreen: false,
-                json: JSON.stringify({ components: [], communications: [] }),
-            });
-            await axios.post('http://localhost:8080/api/menus', {
-                id: `menu-${screenId}`,
-                previousId: '',
-                name,
-                screenId,
-                parentId: '',
-                targetType: 'screen',
-                openMode: 'inline',
-            });
-            setScreens((prev) => {
-                const withoutCurrent = prev.filter((screen) => screen.screenId !== savedScreen.screenId);
-                return [
-                    ...withoutCurrent,
-                    savedScreen,
-                    {
-                        screenId,
-                        name,
-                    },
-                ];
-            });
-            form.setFieldsValue({
-                screenId,
-                name,
-                allowRuntimePersonalization: false,
-                isInitialScreen: false,
-                menuId: `menu-${screenId}`,
-                menuName: name,
-                menuParentId: '',
-                menuTargetType: 'screen',
-                menuOpenMode: 'inline',
-            });
-            setComponents([]);
-            setCommunications([]);
-            setSelectedComponentId(null);
-            setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
-            setColumnNameDrafts({});
-            setJsonTab('visual');
-            setEditingMenuId(`menu-${screenId}`);
-            setSettingsModal({ type: 'menu', mode: 'edit' });
-            await loadDesignerMetadata();
-            setSavedSnapshot(JSON.stringify({
-                form: {
-                    screenId,
-                    name,
-                    allowRuntimePersonalization: false,
-                    isInitialScreen: false,
-                    menuId: `menu-${screenId}`,
-                    menuName: name,
-                    menuParentId: '',
-                    menuTargetType: 'screen',
-                    menuOpenMode: 'inline',
-                },
-                components: [],
-                communications: [],
-                communicationFormats,
-            }));
-            message.success('Added new screen');
-        }
-        catch (err) {
-            console.error(err);
-            if (axios.isAxiosError(err)) {
-                message.error('New screen failed (is the backend running on port 8080?)');
-            }
-        }
+    const newScreen = () => {
+        const screenId = nextScreenId(screens);
+        const name = `Screen ${screenId.replace('screen-', '')}`;
+        settingsForm.setFieldsValue({
+            screenId,
+            name,
+            allowRuntimePersonalization: false,
+            isInitialScreen: false,
+        });
+        setSettingsModal({ type: 'screen', mode: 'new' });
     };
     const saveMenuSettings = async () => {
         if (!settingsModal || settingsModal.type !== 'menu')
@@ -2319,6 +2713,21 @@ function App() {
             return;
         applyFormValues(values);
         setEditingMenuId(values.menuId);
+        setMenus((prev) => {
+            const nextMenu = {
+                id: values.menuId,
+                name: values.menuName,
+                screenId: values.menuTargetType === 'screen' ? values.screenId : '',
+                parentId: values.menuParentId ?? '',
+                targetType: values.menuTargetType ?? 'screen',
+                openMode: values.menuOpenMode ?? 'inline',
+            };
+            return [
+                ...prev.filter((menu) => menu.id !== previousMenuId && menu.id !== values.menuId),
+                nextMenu,
+            ];
+        });
+        setExpandedMenuKeys((prev) => prev.includes(values.menuId) ? prev : [...prev, values.menuId]);
         if (settingsModal.mode === 'new-screen') {
             setComponents([]);
             setCommunications([]);
@@ -2330,24 +2739,114 @@ function App() {
             setSavedSnapshot('');
         }
         else {
-            captureSavedSnapshot();
+            captureSavedSnapshot(values);
         }
+        await loadDesignerMetadata();
         setSettingsModal(null);
     };
     const saveScreenSettings = async () => {
         if (!settingsModal || settingsModal.type !== 'screen')
             return;
         try {
+            const previousScreenId = form.getFieldValue('screenId');
             const values = await settingsForm.validateFields([
                 'screenId',
                 'name',
                 'allowRuntimePersonalization',
                 'isInitialScreen',
             ]);
-            await saveCurrentScreen(values);
+            if (settingsModal.mode === 'new') {
+                const nextMenuId = `menu-${values.screenId}`;
+                await axios.post('http://localhost:8080/api/screens', {
+                    screenId: values.screenId,
+                    name: values.name,
+                    allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+                    isInitialScreen: Boolean(values.isInitialScreen),
+                    json: JSON.stringify({ components: [], communications: [] }),
+                });
+                await axios.post('http://localhost:8080/api/menus', {
+                    id: nextMenuId,
+                    previousId: '',
+                    name: values.name,
+                    screenId: values.screenId,
+                    parentId: '',
+                    targetType: 'screen',
+                    openMode: 'inline',
+                });
+                const nextValues = {
+                    screenId: values.screenId,
+                    name: values.name,
+                    allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+                    isInitialScreen: Boolean(values.isInitialScreen),
+                    menuId: nextMenuId,
+                    menuName: values.name,
+                    menuParentId: '',
+                    menuTargetType: 'screen',
+                    menuOpenMode: 'inline',
+                };
+                applyFormValues(nextValues);
+                setScreens((prev) => [
+                    ...prev.filter((screen) => screen.screenId !== values.screenId),
+                    {
+                        screenId: values.screenId,
+                        name: values.name,
+                        allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+                        isInitialScreen: Boolean(values.isInitialScreen),
+                    },
+                ]);
+                setMenus((prev) => [
+                    ...prev.filter((menu) => menu.id !== nextMenuId),
+                    {
+                        id: nextMenuId,
+                        name: values.name,
+                        screenId: values.screenId,
+                        parentId: '',
+                        targetType: 'screen',
+                        openMode: 'inline',
+                    },
+                ]);
+                setComponents([]);
+                setCommunications([]);
+                setSelectedComponentId(null);
+                setSelectedComponentIds([]);
+                setColumnNameDrafts({});
+                setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+                setJsonTab('visual');
+                setEditingMenuId(nextMenuId);
+                await loadDesignerMetadata();
+                setSavedSnapshot(JSON.stringify({
+                    form: nextValues,
+                    components: [],
+                    communications: [],
+                    communicationFormats,
+                }));
+                setSettingsModal(null);
+                message.success('Added new screen');
+                return;
+            }
+            const nextValues = { ...currentFormValues(), ...values };
+            await saveCurrentScreen(nextValues);
+            if (previousScreenId && previousScreenId !== values.screenId) {
+                await axios.delete(`http://localhost:8080/api/screens/${encodeURIComponent(previousScreenId)}`);
+            }
             applyFormValues(values);
+            setScreens((prev) => [
+                ...prev.filter((screen) => screen.screenId !== previousScreenId && screen.screenId !== values.screenId),
+                {
+                    screenId: values.screenId,
+                    name: values.name,
+                    allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+                    isInitialScreen: Boolean(values.isInitialScreen),
+                },
+            ]);
+            setMenus((prev) => prev.map((menu) => menu.id === nextValues.menuId
+                ? {
+                    ...menu,
+                    screenId: nextValues.menuTargetType === 'screen' ? values.screenId : '',
+                }
+                : menu));
             await loadDesignerMetadata();
-            captureSavedSnapshot();
+            captureSavedSnapshot(nextValues);
             setSettingsModal(null);
             message.success('Saved screen settings');
         }
@@ -2401,25 +2900,48 @@ function App() {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     fontWeight: 700,
-                                }, children: "W" }), _jsxs("div", { children: [_jsx(Typography.Title, { level: 5, style: { margin: 0, lineHeight: 1.1 }, children: "Web Screen Builder" }), _jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [watchedScreenName, " (", watchedScreenId, ")"] })] })] }), _jsxs(Space, { size: 8, children: [hasUnsavedChanges ? (_jsx(Typography.Text, { type: "warning", children: "Unsaved changes" })) : (_jsx(Typography.Text, { type: "secondary", children: "Saved" })), _jsx(Button, { type: "primary", onClick: save, children: "Save" })] })] }), _jsxs(Layout, { children: [_jsxs(Sider, { width: 300, theme: "light", style: {
+                                }, children: "W" }), _jsxs("div", { children: [_jsx(Typography.Title, { level: 5, style: { margin: 0, lineHeight: 1.1 }, children: "Web Screen Builder" }), _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: hasSelectedScreen
+                                            ? `${watchedScreenName || watchedScreenId} (${watchedScreenId})`
+                                            : 'No screen selected' })] })] }), _jsxs(Space, { size: 8, children: [!hasSelectedScreen ? (_jsx(Typography.Text, { type: "secondary", children: "No screen selected" })) : hasUnsavedChanges ? (_jsx(Typography.Text, { type: "warning", children: "Unsaved changes" })) : (_jsx(Typography.Text, { type: "secondary", children: "Saved" })), _jsx(Button, { type: "primary", disabled: !hasSelectedScreen, onClick: save, children: "Save" })] })] }), _jsxs(Layout, { children: [_jsxs(Sider, { width: 300, theme: "light", style: {
                             borderRight: '1px solid #d9dee7',
                             background: '#ffffff',
                             padding: 16,
                             overflow: 'auto',
                             height: 'calc(100vh - 56px)',
-                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screens" }), _jsx(Button, { size: "small", type: "primary", onClick: newScreen, children: "New" })] }), _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), actions: [
+                        }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screens" }), _jsxs(Space, { size: 6, children: [_jsx(Button, { size: "small", type: "primary", onClick: newScreen, children: "New" }), _jsx(Button, { size: "small", onClick: () => setScreenPickerOpen(true), children: "List" }), _jsx(Button, { size: "small", disabled: !hasSelectedScreen, onClick: openScreenSettings, children: "Screen settings" })] })] }), _jsx(List, { size: "small", bordered: true, dataSource: visibleScreens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => loadScreen(screen.screenId), actions: [
                                         _jsx(Button, { size: "small", danger: true, type: "text", icon: _jsx(DeleteOutlined, {}), "aria-label": "Delete screen", onClick: (e) => {
                                                 e.stopPropagation();
                                                 confirmDeleteScreen(screen.screenId);
                                             } }, "delete"),
-                                    ], style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsxs(Space, { size: 6, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), screen.isInitialScreen && (_jsx(Typography.Text, { type: "success", style: { fontSize: 12 }, children: "Initial" }))] }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' } }), _jsx(Typography.Title, { level: 5, style: { marginTop: 0, marginBottom: 10 }, children: "Menus" }), _jsxs(Space, { size: 6, style: { width: '100%', marginBottom: 8 }, children: [_jsx(Button, { size: "small", onClick: () => startMenuScreen(), children: "New screen menu" }), _jsx(Button, { size: "small", onClick: () => startMenuFolder(), children: "New folder" })] }), _jsxs("div", { style: {
+                                    ], style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsxs(Space, { size: 6, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), screen.isInitialScreen && (_jsx(Typography.Text, { type: "success", style: { fontSize: 12 }, children: "Initial" }))] }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })), style: { marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' } }), _jsx(Modal, { open: screenPickerOpen, title: "Screens", width: 640, onCancel: () => setScreenPickerOpen(false), footer: _jsx(Button, { onClick: () => setScreenPickerOpen(false), children: "Close" }), children: _jsx(List, { size: "small", bordered: true, dataSource: screens, locale: { emptyText: 'No saved screens' }, renderItem: (screen) => (_jsx(List.Item, { onClick: () => {
+                                            setScreenPickerOpen(false);
+                                            loadScreen(screen.screenId);
+                                        }, actions: [
+                                            _jsx(Button, { size: "small", danger: true, type: "text", icon: _jsx(DeleteOutlined, {}), "aria-label": "Delete screen", onClick: (e) => {
+                                                    e.stopPropagation();
+                                                    confirmDeleteScreen(screen.screenId);
+                                                } }, "delete"),
+                                        ], style: { cursor: 'pointer', paddingInline: 8 }, children: _jsxs("div", { style: { minWidth: 0 }, children: [_jsxs(Space, { size: 6, children: [_jsx(Typography.Text, { strong: true, children: screen.name || screen.screenId }), screen.screenId === watchedScreenId && (_jsx(Typography.Text, { type: "success", style: { fontSize: 12 }, children: "Current" })), screen.isInitialScreen && (_jsx(Typography.Text, { type: "success", style: { fontSize: 12 }, children: "Initial" }))] }), _jsx("div", { children: _jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: screen.screenId }) })] }) })) }) }), _jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 10 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Menus" }), _jsxs(Space, { size: 6, children: [_jsx(Dropdown, { trigger: ['click'], menu: {
+                                                    items: [
+                                                        { key: 'screen', label: 'Screen menu' },
+                                                        { key: 'folder', label: 'Folder' },
+                                                    ],
+                                                    onClick: ({ key }) => {
+                                                        if (key === 'folder') {
+                                                            startMenuFolder();
+                                                        }
+                                                        else {
+                                                            startMenuScreen();
+                                                        }
+                                                    },
+                                                }, children: _jsx(Button, { size: "small", type: "primary", children: "New" }) }), _jsx(Button, { size: "small", disabled: !hasSelectedMenu, onClick: openMenuSettings, children: "Menu settings" })] })] }), _jsxs("div", { style: {
                                     marginBottom: 20,
                                     background: '#fff',
                                     border: '1px solid #e5e7eb',
                                     borderRadius: 8,
                                     padding: 8,
-                                }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: expandedMenuKeys, onExpand: (keys) => setExpandedMenuKeys(keys), onSelect: (keys) => {
-                                            const menu = menus.find((item) => item.id === String(keys[0] ?? ''));
+                                }, children: [_jsx(Tree, { treeData: menuTreeData, blockNode: true, showLine: true, expandedKeys: expandedMenuKeys, selectedKeys: editingMenuId ? [editingMenuId] : [], onExpand: (keys) => setExpandedMenuKeys(keys), onSelect: (_, info) => {
+                                            const menu = menus.find((item) => item.id === String(info.node.key ?? ''));
                                             if (menu) {
                                                 loadMenu(menu);
                                             }
@@ -2449,17 +2971,19 @@ function App() {
                             height: 'calc(100vh - 56px)',
                             overflow: 'auto',
                             boxSizing: 'border-box',
+                            display: 'flex',
+                            flexDirection: 'column',
                         }, children: [_jsxs(Form, { form: form, layout: "vertical", onValuesChange: () => setFormRevision((prev) => prev + 1), initialValues: {
-                                    screenId: DEFAULT_SCREEN_ID,
-                                    name: DEFAULT_SCREEN_NAME,
+                                    screenId: '',
+                                    name: '',
                                     allowRuntimePersonalization: false,
                                     isInitialScreen: false,
-                                    menuId: DEFAULT_MENU_ID,
-                                    menuName: DEFAULT_SCREEN_NAME,
+                                    menuId: '',
+                                    menuName: '',
                                     menuParentId: '',
                                     menuTargetType: 'screen',
                                     menuOpenMode: 'inline',
-                                }, style: { width: '100%', marginBottom: 16 }, children: [_jsxs("div", { style: {
+                                }, style: { width: '100%', marginBottom: 12, flex: '0 0 auto' }, children: [_jsx("div", { style: {
                                             display: 'flex',
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
@@ -2468,7 +2992,7 @@ function App() {
                                             background: '#fff',
                                             border: '1px solid #e5e7eb',
                                             borderRadius: 8,
-                                        }, children: [_jsxs(Space, { size: 16, wrap: true, children: [_jsxs(Typography.Text, { children: [_jsx("strong", { children: "Menu" }), " ", watchedMenuName, " (", watchedMenuId, ")"] }), _jsxs(Typography.Text, { children: [_jsx("strong", { children: "Screen" }), " ", watchedScreenName, " (", watchedScreenId, ")"] })] }), _jsxs(Space, { size: 8, children: [_jsx(Button, { onClick: openMenuSettings, children: "Menu settings" }), _jsx(Button, { onClick: openScreenSettings, children: "Screen settings" })] })] }), _jsx(Modal, { open: settingsModal?.type === 'menu', title: settingsModal?.type === 'menu' && settingsModal.mode !== 'edit' ? 'New menu' : 'Menu settings', width: 760, onCancel: () => setSettingsModal(null), footer: _jsxs(Space, { children: [settingsModal?.type === 'menu' && settingsModal.mode === 'edit' && (_jsx(Button, { danger: true, onClick: () => confirmDeleteMenu(settingsForm.getFieldValue('menuId')), children: "Delete menu" })), _jsx(Button, { onClick: () => setSettingsModal(null), children: "Cancel" }), _jsx(Button, { type: "primary", onClick: saveMenuSettings, children: "Save menu" })] }), children: _jsx(Form, { form: settingsForm, layout: "vertical", children: _jsxs("div", { style: {
+                                        }, children: _jsxs(Space, { size: 16, wrap: true, children: [_jsxs(Typography.Text, { children: [_jsx("strong", { children: "Menu" }), ' ', hasSelectedMenu ? `${watchedMenuName || watchedMenuId} (${watchedMenuId})` : ''] }), _jsxs(Typography.Text, { children: [_jsx("strong", { children: "Screen" }), ' ', hasSelectedScreen ? `${watchedScreenName || watchedScreenId} (${watchedScreenId})` : ''] }), (!hasSelectedMenu || !hasSelectedScreen) && (_jsx(Typography.Text, { type: "secondary", children: "\uBA54\uB274\uB098 \uD654\uBA74\uC744 \uBA3C\uC800 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8\uB85C \uC0DD\uC131\uD558\uC138\uC694." }))] }) }), _jsx(Modal, { open: settingsModal?.type === 'menu', title: settingsModal?.type === 'menu' && settingsModal.mode !== 'edit' ? 'New menu' : 'Menu settings', width: 760, onCancel: () => setSettingsModal(null), footer: _jsxs(Space, { children: [settingsModal?.type === 'menu' && settingsModal.mode === 'edit' && (_jsx(Button, { danger: true, onClick: () => confirmDeleteMenu(settingsForm.getFieldValue('menuId')), children: "Delete menu" })), _jsx(Button, { onClick: () => setSettingsModal(null), children: "Cancel" }), _jsx(Button, { type: "primary", onClick: saveMenuSettings, children: "Save menu" })] }), children: _jsx(Form, { form: settingsForm, layout: "vertical", children: _jsxs("div", { style: {
                                                     display: 'grid',
                                                     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                                                     gap: 16,
@@ -2478,7 +3002,7 @@ function App() {
                                                             ] }) }), _jsx(Form.Item, { name: "menuOpenMode", label: "Open Mode", rules: [{ required: true }], children: _jsx(Select, { options: [
                                                                 { value: 'inline', label: 'Inline' },
                                                                 { value: 'popup', label: 'Popup' },
-                                                            ] }) })] }) }) }), _jsx(Modal, { open: settingsModal?.type === 'screen', title: "Screen settings", width: 760, onCancel: () => setSettingsModal(null), footer: _jsxs(Space, { children: [_jsx(Button, { danger: true, onClick: () => confirmDeleteScreen(settingsForm.getFieldValue('screenId')), children: "Delete screen" }), _jsx(Button, { onClick: () => setSettingsModal(null), children: "Cancel" }), _jsx(Button, { type: "primary", onClick: saveScreenSettings, children: "Save screen" })] }), children: _jsx(Form, { form: settingsForm, layout: "vertical", children: _jsxs("div", { style: {
+                                                            ] }) })] }) }) }), _jsx(Modal, { open: settingsModal?.type === 'screen', title: settingsModal?.type === 'screen' && settingsModal.mode === 'new' ? 'New screen' : 'Screen settings', width: 760, onCancel: () => setSettingsModal(null), footer: _jsxs(Space, { children: [settingsModal?.type === 'screen' && settingsModal.mode === 'edit' && (_jsx(Button, { danger: true, onClick: () => confirmDeleteScreen(settingsForm.getFieldValue('screenId')), children: "Delete screen" })), _jsx(Button, { onClick: () => setSettingsModal(null), children: "Cancel" }), _jsx(Button, { type: "primary", onClick: saveScreenSettings, children: "Save screen" })] }), children: _jsx(Form, { form: settingsForm, layout: "vertical", children: _jsxs("div", { style: {
                                                     display: 'grid',
                                                     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                                                     gap: 16,
@@ -2486,21 +3010,31 @@ function App() {
                                     setJsonTab(k);
                                     if (k === 'json')
                                         syncJsonDraftFromComponents();
+                                }, style: {
+                                    height: 'calc(100% - 84px)',
+                                    minHeight: 0,
+                                    display: 'flex',
+                                    flexDirection: 'column',
                                 }, items: [
                                     {
                                         key: 'visual',
                                         label: 'Screen layout',
                                         children: (_jsxs("div", { onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
-                                                minHeight: 420,
+                                                height: 'calc(100vh - 208px)',
+                                                minHeight: 360,
                                                 background: '#ffffff',
                                                 border: '1px solid #d9dee7',
                                                 borderRadius: 10,
                                                 padding: '16px 16px 24px',
                                                 transition: 'border-color 0.2s',
                                                 boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
-                                            }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 14 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screen Layout" }), _jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [components.length, " components"] })] }), _jsxs("div", { ref: canvasInnerRef, onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
+                                                boxSizing: 'border-box',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                            }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 14, flex: '0 0 auto' }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Screen Layout" }), _jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [components.length, " components"] })] }), _jsxs("div", { ref: canvasInnerRef, onDragOver: acceptDragOver, onDrop: dropNewFromToolbox, style: {
                                                         position: 'relative',
-                                                        minHeight: 460,
+                                                        flex: 1,
+                                                        minHeight: 0,
                                                         width: '100%',
                                                         marginTop: 8,
                                                         border: '1px solid #e5e7eb',
@@ -2509,6 +3043,7 @@ function App() {
                                                         backgroundSize: `${GRID}px ${GRID}px`,
                                                         backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
                                                         overflow: 'visible',
+                                                        boxSizing: 'border-box',
                                                     }, children: [components.length === 0 ? (_jsx(Typography.Paragraph, { type: "secondary", style: { margin: 0 }, children: "Drop components here from the left toolbox." })) : ([...components]
                                                             .slice()
                                                             .sort((a, b) => (a.zIndex ?? 1) - (b.zIndex ?? 1))
@@ -2592,6 +3127,76 @@ function App() {
                                         key: 'json',
                                         label: 'JSON',
                                         children: (_jsxs(Space, { direction: "vertical", style: { width: '100%' }, size: 12, children: [_jsx(Input.TextArea, { rows: 14, value: jsonDraft, onChange: (e) => setJsonDraft(e.target.value), style: { fontFamily: 'monospace', fontSize: 12 } }), _jsxs(Space, { children: [_jsx(Button, { onClick: syncJsonDraftFromComponents, children: "Reset from canvas" }), _jsx(Button, { type: "primary", onClick: applyJsonDraft, children: "Apply to canvas" })] })] })),
+                                    },
+                                    {
+                                        key: 'source-import',
+                                        label: 'Source import',
+                                        children: (_jsxs("div", { style: {
+                                                height: 'calc(100vh - 208px)',
+                                                minHeight: 360,
+                                                display: 'grid',
+                                                gridTemplateColumns: 'minmax(320px, 0.9fr) minmax(420px, 1.1fr)',
+                                                gap: 16,
+                                            }, children: [_jsxs("div", { style: {
+                                                        background: '#ffffff',
+                                                        border: '1px solid #d9dee7',
+                                                        borderRadius: 8,
+                                                        padding: 16,
+                                                        minHeight: 0,
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        overflow: 'auto',
+                                                    }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Source Input" }), _jsx(Select, { size: "small", value: sourceInputType, onChange: (value) => setSourceInputType(value), options: [
+                                                                        { value: 'js', label: 'JS' },
+                                                                        { value: 'hbs', label: 'HBS' },
+                                                                        { value: 'react-js', label: 'React JS' },
+                                                                    ], style: { width: 120 } })] }), _jsx(Input.TextArea, { value: sourceInputText, onChange: (e) => setSourceInputText(e.target.value), placeholder: "\uAE30\uC874 js, hbs, react js \uC18C\uC2A4\uB97C \uC5EC\uAE30\uC5D0 \uBD99\uC5EC\uB123\uC73C\uC138\uC694.", style: {
+                                                                flex: 1,
+                                                                minHeight: 0,
+                                                                resize: 'none',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: 12,
+                                                            } }), _jsxs(Space, { style: { marginTop: 12, justifyContent: 'space-between', width: '100%' }, children: [_jsxs(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: [sourceInputText.length, " chars"] }), _jsxs(Space, { size: 8, children: [_jsx(Button, { onClick: clearSourceScreenDraft, children: "Clear" }), _jsx(Button, { type: "primary", onClick: buildSourceScreenDraft, children: "Generate draft" }), _jsx(Button, { loading: aiDraftLoading, onClick: buildAiSourceScreenDraft, children: "AI Generate draft" })] })] })] }), _jsxs("div", { style: {
+                                                        background: '#ffffff',
+                                                        border: '1px solid #d9dee7',
+                                                        borderRadius: 8,
+                                                        padding: 16,
+                                                        minHeight: 0,
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        overflow: 'auto',
+                                                    }, children: [_jsxs(Space, { style: { width: '100%', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx(Typography.Title, { level: 5, style: { margin: 0 }, children: "Generated Screen" }), _jsxs(Space, { size: 8, children: [_jsx(Typography.Text, { type: "secondary", style: { fontSize: 12 }, children: sourceScreenDraft
+                                                                                ? `${sourceTypeLabel(sourceScreenDraft.sourceType)} / ${sourceScreenDraft.lineCount} lines`
+                                                                                : 'No draft' }), _jsx(Button, { size: "small", disabled: !sourceScreenDraft, onClick: () => setSourceDraftModalOpen(true), children: "Open large" }), _jsx(Button, { size: "small", type: "primary", disabled: !sourceScreenDraft, onClick: createScreenFromSourceDraft, children: "Create screen" })] })] }), sourceScreenDraft && (_jsx(Alert, { type: "info", showIcon: true, message: sourceScreenDraft.summaryMessage, description: `${sourceScreenDraft.summaryTitle} - ${sourceScreenDraft.summaryDescription}`, style: { marginBottom: 12, flex: '0 0 auto' } })), _jsx("div", { style: {
+                                                                position: 'relative',
+                                                                height: sourceDraftCanvasHeight,
+                                                                minHeight: sourceDraftCanvasHeight,
+                                                                border: '1px solid #e5e7eb',
+                                                                borderRadius: 8,
+                                                                backgroundColor: '#fbfcfe',
+                                                                backgroundSize: `${GRID}px ${GRID}px`,
+                                                                backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+                                                                overflow: 'hidden',
+                                                            }, children: !sourceScreenDraft ? (_jsx(Typography.Paragraph, { type: "secondary", style: { margin: 16 }, children: "\uC18C\uC2A4\uB97C \uBD99\uC5EC\uB123\uACE0 Generate draft\uB97C \uB204\uB974\uBA74 \uD654\uBA74 \uCD08\uC548\uC774 \uC5EC\uAE30\uC5D0 \uD45C\uC2DC\uB429\uB2C8\uB2E4." })) : (sourceScreenDraft.components.map((component) => {
+                                                                const layout = effectiveLayout(component);
+                                                                return (_jsx("div", { style: {
+                                                                        position: 'absolute',
+                                                                        left: layout.x,
+                                                                        top: layout.y,
+                                                                        width: layout.w,
+                                                                        height: layout.h,
+                                                                        zIndex: component.zIndex ?? 1,
+                                                                        boxSizing: 'border-box',
+                                                                        padding: 8,
+                                                                        border: '1px solid #cfd7e3',
+                                                                        borderRadius: 8,
+                                                                        background: '#fff',
+                                                                        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+                                                                    }, children: _jsx(CanvasPreview, { item: component }) }, component.id));
+                                                            })) })] }), _jsx(Modal, { open: sourceDraftModalOpen, title: "Generated Screen", width: "calc(100vw - 96px)", style: { top: 32 }, onCancel: () => setSourceDraftModalOpen(false), footer: _jsxs(Space, { children: [_jsx(Button, { onClick: () => setSourceDraftModalOpen(false), children: "Close" }), _jsx(Button, { type: "primary", disabled: !sourceScreenDraft, onClick: () => {
+                                                                    createScreenFromSourceDraft();
+                                                                    setSourceDraftModalOpen(false);
+                                                                }, children: "Create screen" })] }), children: _jsxs("div", { style: { height: 'calc(100vh - 180px)', overflow: 'auto' }, children: [sourceScreenDraft && (_jsx(Alert, { type: "info", showIcon: true, message: sourceScreenDraft.summaryMessage, description: `${sourceScreenDraft.summaryTitle} - ${sourceScreenDraft.summaryDescription}`, style: { marginBottom: 12 } })), _jsx(SourceDraftCanvas, { draft: sourceScreenDraft, height: Math.max(sourceDraftCanvasHeight, 720) })] }) })] })),
                                     },
                                     {
                                         key: 'preview',

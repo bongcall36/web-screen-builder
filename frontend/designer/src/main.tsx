@@ -7,6 +7,7 @@ import {
   Checkbox,
   DatePicker,
   Divider,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -95,6 +96,18 @@ type CommunicationFormat = {
   inputFields: string[];
   outputFields: string[];
   sampleRows: GridRow[];
+};
+
+type SourceInputType = 'js' | 'hbs' | 'react-js';
+
+type SourceScreenDraft = {
+  sourceType: SourceInputType;
+  lineCount: number;
+  charCount: number;
+  summaryTitle: string;
+  summaryMessage: string;
+  summaryDescription: string;
+  components: ScreenComponent[];
 };
 
 const GRID_DATA_TYPE_OPTIONS: Array<{ value: GridDataType; label: string }> = [
@@ -194,6 +207,337 @@ function effectiveLayout(c: ScreenComponent): { x: number; y: number; w: number;
   };
 }
 
+function sourceTypeLabel(sourceType: SourceInputType) {
+  if (sourceType === 'react-js') return 'React JS';
+  return sourceType.toUpperCase();
+}
+
+function makeGeneratedId(prefix: string, index: number) {
+  return `generated-${prefix}-${index}`;
+}
+
+function cleanSourceLabel(value: string | undefined, fallback: string) {
+  const cleaned = (value ?? '')
+    .replace(/\{.*?\}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || fallback;
+}
+
+function extractFirstString(source: string, keys: string[]) {
+  for (const key of keys) {
+    const pattern = new RegExp(`${key}\\s*[=:]\\s*["'\`]([^"'\`]{1,80})["'\`]`, 'i');
+    const match = source.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return '';
+}
+
+function extractJsGridColumns(sourceText: string) {
+  const fields = new Set<string>();
+  const patterns = [
+    /(?:dataIndex|field|key)\s*:\s*["'`]([A-Za-z0-9_.-]{1,40})["'`]/g,
+    /<Column[^>]+(?:dataIndex|field|key)=["'`]([A-Za-z0-9_.-]{1,40})["'`]/g,
+  ];
+  patterns.forEach((pattern) => {
+    for (const match of sourceText.matchAll(pattern)) {
+      if (match[1] && !['id', 'key'].includes(match[1])) {
+        fields.add(match[1]);
+      }
+    }
+  });
+  return [...fields].slice(0, 6).map((field) => ({ field }));
+}
+
+function inferJsComponentType(snippet: string): ScreenComponentType | null {
+  const lower = snippet.toLowerCase();
+  if (/(xtype|type)\s*:\s*["'`](grid|gridpanel|table)["'`]/.test(lower) || /<table|<aggrid|<datagrid/.test(lower)) {
+    return 'AgGrid';
+  }
+  if (/(xtype|type)\s*:\s*["'`](textarea|textareafield)["'`]/.test(lower) || /<textarea/.test(lower)) {
+    return 'TextArea';
+  }
+  if (/(xtype|type)\s*:\s*["'`](numberfield|number|numberinput)["'`]/.test(lower) || /type=["'`]number["'`]/.test(lower)) {
+    return 'NumberInput';
+  }
+  if (/(xtype|type)\s*:\s*["'`](combo|combobox|select)["'`]/.test(lower) || /<select/.test(lower)) {
+    return 'Select';
+  }
+  if (/(xtype|type)\s*:\s*["'`](checkbox|checkboxfield)["'`]/.test(lower) || /type=["'`]checkbox["'`]/.test(lower)) {
+    return 'Checkbox';
+  }
+  if (/(xtype|type)\s*:\s*["'`](datefield|datepicker)["'`]/.test(lower) || /type=["'`]date["'`]/.test(lower)) {
+    return 'DatePicker';
+  }
+  if (/(xtype|type)\s*:\s*["'`](button)["'`]/.test(lower) || /<button/.test(lower)) {
+    return 'Button';
+  }
+  if (/(xtype|type)\s*:\s*["'`](label|displayfield|text)["'`]/.test(lower)) {
+    return 'Text';
+  }
+  if (/(xtype|type)\s*:\s*["'`](textfield|input|text)["'`]/.test(lower) || /<input/.test(lower)) {
+    return 'Input';
+  }
+  if (/(fieldlabel|placeholder|name)\s*[=:]/.test(lower)) {
+    return 'Input';
+  }
+  return null;
+}
+
+function propsForInferredComponent(type: ScreenComponentType, label: string, sourceText: string) {
+  if (type === 'Text') return { text: label };
+  if (type === 'Button') return { text: label };
+  if (type === 'Checkbox' || type === 'Switch') return { label };
+  if (type === 'Select') return { placeholder: label, options: ['Option 1', 'Option 2'] };
+  if (type === 'AgGrid') {
+    const columnDefs = extractJsGridColumns(sourceText);
+    return {
+      columnDefs: columnDefs.length > 0 ? columnDefs : [{ field: 'field1' }, { field: 'field2' }],
+      rowData: [],
+    };
+  }
+  return { placeholder: label };
+}
+
+function buildInferredComponents(
+  snippets: string[],
+  inferType: (snippet: string) => ScreenComponentType | null,
+  labelKeys: string[],
+  sourceText: string,
+): ScreenComponent[] {
+  const components: ScreenComponent[] = [];
+  const seen = new Set<string>();
+  const addComponent = (type: ScreenComponentType, label: string, sourceForProps: string) => {
+    const dedupeKey = `${type}:${label.toLowerCase()}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    const index = components.length + 1;
+    const isWide = type === 'AgGrid' || type === 'TextArea';
+    const column = isWide ? 0 : (index - 1) % 2;
+    const row = Math.floor((index - 1) / 2);
+    const size = defaultSize(type);
+    components.push({
+      id: makeGeneratedId(type.toLowerCase(), index),
+      type,
+      layout: {
+        x: 24 + column * 300,
+        y: 24 + row * 72,
+        width: isWide ? Math.max(size.w, 560) : size.w,
+        height: type === 'AgGrid' ? 220 : size.h,
+      },
+      props: propsForInferredComponent(type, label, sourceForProps),
+      zIndex: index + 2,
+    });
+  };
+
+  snippets.forEach((snippet) => {
+    const type = inferType(snippet);
+    if (!type) return;
+    const label = cleanSourceLabel(
+      extractFirstString(snippet, labelKeys),
+      type,
+    );
+    addComponent(type, label, snippet);
+  });
+
+  return components.slice(0, 16);
+}
+
+function inferJsScreenComponents(sourceText: string): ScreenComponent[] {
+  const lines = sourceText.split(/\r?\n/);
+  const snippets: string[] = [];
+
+  lines.forEach((line, index) => {
+    const next = lines.slice(index, index + 4).join(' ');
+    if (inferJsComponentType(next)) {
+      snippets.push(next);
+    } else if (/<(input|button|select|textarea|table)\b/i.test(line)) {
+      snippets.push(line);
+    }
+  });
+
+  const components = buildInferredComponents(
+    snippets,
+    inferJsComponentType,
+    ['fieldLabel', 'label', 'text', 'title', 'placeholder', 'name', 'headerName'],
+    sourceText,
+  );
+
+  if ((/columns\s*[:=]/i.test(sourceText) || /<Column\b/i.test(sourceText)) && !components.some((item) => item.type === 'AgGrid')) {
+    const index = components.length + 1;
+    components.push({
+      id: makeGeneratedId('aggrid', index),
+      type: 'AgGrid',
+      layout: { x: 24, y: 24 + Math.floor((index - 1) / 2) * 72, width: 560, height: 220 },
+      props: propsForInferredComponent('AgGrid', 'Result Grid', sourceText),
+      zIndex: index + 2,
+    });
+  }
+
+  return components.slice(0, 16);
+}
+
+function inferHbsComponentType(snippet: string): ScreenComponentType | null {
+  const lower = snippet.toLowerCase();
+  if (/<table|{{#each|{{each|grid|datatable/.test(lower)) return 'AgGrid';
+  if (/<textarea|{{textarea/.test(lower)) return 'TextArea';
+  if (/<select|{{select|{{combo/.test(lower)) return 'Select';
+  if (/type=["'`]checkbox["'`]|{{checkbox/.test(lower)) return 'Checkbox';
+  if (/type=["'`]date["'`]|{{date/.test(lower)) return 'DatePicker';
+  if (/<button|{{button/.test(lower)) return 'Button';
+  if (/<input[^>]+type=["'`]number["'`]|{{number/.test(lower)) return 'NumberInput';
+  if (/<input|{{input/.test(lower)) return 'Input';
+  if (/<label|<h[1-6]\b|{{label|{{title/.test(lower)) return 'Text';
+  return null;
+}
+
+function inferHbsScreenComponents(sourceText: string): ScreenComponent[] {
+  const snippets = [
+    ...sourceText.matchAll(/<(?:input|button|select|textarea|table|label|h[1-6])\b[^>]*>(?:[^<]{0,80})?/gi),
+    ...sourceText.matchAll(/{{[#/]?(?:input|textarea|select|combo|checkbox|button|date|number|label|title|each)\b[^}]*}}/gi),
+  ].map((match) => match[0]);
+
+  return buildInferredComponents(
+    snippets,
+    inferHbsComponentType,
+    ['label', 'aria-label', 'title', 'placeholder', 'name', 'value'],
+    sourceText,
+  );
+}
+
+function inferReactComponentType(snippet: string): ScreenComponentType | null {
+  const lower = snippet.toLowerCase();
+  if (/<(aggrid|datagrid|table|grid)\b/.test(lower)) return 'AgGrid';
+  if (/<(textarea|input\.textarea)\b/.test(lower)) return 'TextArea';
+  if (/<(select|combobox)\b/.test(lower)) return 'Select';
+  if (/<(checkbox)\b/.test(lower) || /type=["'`]checkbox["'`]/.test(lower)) return 'Checkbox';
+  if (/<(switch)\b/.test(lower)) return 'Switch';
+  if (/<(datepicker)\b/.test(lower) || /type=["'`]date["'`]/.test(lower)) return 'DatePicker';
+  if (/<(button)\b/.test(lower)) return 'Button';
+  if (/<(inputnumber|numberinput)\b/.test(lower) || /type=["'`]number["'`]/.test(lower)) return 'NumberInput';
+  if (/<(input|textfield)\b/.test(lower)) return 'Input';
+  if (/<(typography\.text|label|span|h[1-6])\b/.test(lower)) return 'Text';
+  return null;
+}
+
+function inferReactScreenComponents(sourceText: string): ScreenComponent[] {
+  const snippets = [
+    ...sourceText.matchAll(/<(?:Input\.TextArea|Typography\.Text|InputNumber|NumberInput|DatePicker|AgGrid|DataGrid|TextField|Input|Button|Select|Checkbox|Switch|Table|Grid|label|span|h[1-6])\b[^>]*(?:>(?:[^<]{0,80})?)?/g),
+    ...sourceText.matchAll(/<Column\b[^>]*\/?>/g),
+  ].map((match) => match[0]);
+
+  const components = buildInferredComponents(
+    snippets,
+    inferReactComponentType,
+    ['label', 'aria-label', 'title', 'placeholder', 'name', 'children', 'headerName', 'dataIndex'],
+    sourceText,
+  );
+
+  if ((/columns\s*[:=]/i.test(sourceText) || /<Column\b/i.test(sourceText)) && !components.some((item) => item.type === 'AgGrid')) {
+    const index = components.length + 1;
+    components.push({
+      id: makeGeneratedId('aggrid', index),
+      type: 'AgGrid',
+      layout: { x: 24, y: 24 + Math.floor((index - 1) / 2) * 72, width: 560, height: 220 },
+      props: propsForInferredComponent('AgGrid', 'Result Grid', sourceText),
+      zIndex: index + 2,
+    });
+  }
+
+  return components.slice(0, 16);
+}
+
+function makeFallbackSourceScreenDraft(sourceType: SourceInputType, sourceText: string): SourceScreenDraft {
+  const lineCount = sourceText.trim() ? sourceText.split(/\r?\n/).length : 0;
+  const charCount = sourceText.length;
+  const label = sourceTypeLabel(sourceType);
+  return {
+    sourceType,
+    lineCount,
+    charCount,
+    summaryTitle: `${label} Source Screen Draft`,
+    summaryMessage: 'Source pasted',
+    summaryDescription: `${lineCount} lines / ${charCount} characters. Parser hook is ready for the next step.`,
+    components: [
+      {
+        id: 'generated-summary',
+        type: 'Alert',
+        layout: { x: 24, y: 76, width: 520, height: 88 },
+        props: {
+          alertType: 'info',
+          message: 'Source pasted',
+          description: `${lineCount} lines / ${charCount} characters. 변환 로직은 다음 단계에서 연결됩니다.`,
+        },
+        zIndex: 2,
+      },
+      {
+        id: 'generated-input',
+        type: 'Input',
+        layout: { x: 24, y: 24, width: 280, height: 40 },
+        props: { placeholder: 'Detected field placeholder' },
+        zIndex: 1,
+      },
+      {
+        id: 'generated-action',
+        type: 'Button',
+        layout: { x: 320, y: 24, width: 140, height: 40 },
+        props: { text: 'Action' },
+        zIndex: 2,
+      },
+      {
+        id: 'generated-grid',
+        type: 'AgGrid',
+        layout: { x: 24, y: 88, width: 560, height: 220 },
+        props: {
+          columnDefs: [{ field: 'source' }, { field: 'status' }],
+          rowData: [
+            { source: label, status: 'Ready for parser' },
+            { source: 'Screen builder', status: 'Preview only' },
+          ],
+        },
+        zIndex: 3,
+      },
+    ],
+  };
+}
+
+function makeSourceScreenDraft(sourceType: SourceInputType, sourceText: string): SourceScreenDraft {
+  const lineCount = sourceText.trim() ? sourceText.split(/\r?\n/).length : 0;
+  const charCount = sourceText.length;
+  const label = sourceTypeLabel(sourceType);
+  const inferredComponents =
+    sourceType === 'js'
+      ? inferJsScreenComponents(sourceText)
+      : sourceType === 'hbs'
+        ? inferHbsScreenComponents(sourceText)
+        : inferReactScreenComponents(sourceText);
+  const bodyComponents =
+    inferredComponents.length > 0
+      ? inferredComponents
+      : makeFallbackSourceScreenDraft(sourceType, sourceText).components.slice(1);
+  const parsedMessage =
+    sourceType === 'js'
+      ? 'JS source parsed'
+      : sourceType === 'hbs'
+        ? 'HBS source parsed'
+        : 'React JS source parsed';
+
+  return {
+    sourceType,
+    lineCount,
+    charCount,
+    summaryTitle: `${label} Source Screen Draft`,
+    summaryMessage: inferredComponents.length > 0 ? parsedMessage : 'Source pasted',
+    summaryDescription:
+      inferredComponents.length > 0
+        ? `${lineCount} lines / ${charCount} characters. ${inferredComponents.length} ${sourceTypeLabel(sourceType)} component candidates detected.`
+        : `${lineCount} lines / ${charCount} characters. No ${sourceTypeLabel(sourceType)} UI patterns detected yet.`,
+    components: bodyComponents,
+  };
+}
+
 type ScreenComponent = {
   id: string;
   type: ScreenComponentType;
@@ -232,12 +576,8 @@ type DesignerFormValues = {
 
 type SettingsModalState =
   | { type: 'menu'; mode: 'edit' | 'new-screen' | 'new-folder' }
-  | { type: 'screen' }
+  | { type: 'screen'; mode: 'edit' | 'new' }
   | null;
-
-const DEFAULT_SCREEN_ID = 'screen-1';
-const DEFAULT_SCREEN_NAME = 'Screen 1';
-const DEFAULT_MENU_ID = `menu-${DEFAULT_SCREEN_ID}`;
 
 const DEFAULT_COMPONENTS: ScreenComponent[] = [];
 
@@ -913,6 +1253,62 @@ function CanvasPreview({
   return null;
 }
 
+function SourceDraftCanvas({
+  draft,
+  height,
+}: {
+  draft: SourceScreenDraft | null;
+  height: number;
+}) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        height,
+        minHeight: height,
+        width: '100%',
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        backgroundColor: '#fbfcfe',
+        backgroundSize: `${GRID}px ${GRID}px`,
+        backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+        boxSizing: 'border-box',
+      }}
+    >
+      {!draft ? (
+        <Typography.Paragraph type="secondary" style={{ margin: 16 }}>
+          Paste source and click Generate draft to show a screen draft here.
+        </Typography.Paragraph>
+      ) : (
+        draft.components.map((component) => {
+          const layout = effectiveLayout(component);
+          return (
+            <div
+              key={component.id}
+              style={{
+                position: 'absolute',
+                left: layout.x,
+                top: layout.y,
+                width: layout.w,
+                height: layout.h,
+                zIndex: component.zIndex ?? 1,
+                boxSizing: 'border-box',
+                padding: 8,
+                border: '1px solid #cfd7e3',
+                borderRadius: 8,
+                background: '#fff',
+                boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+              }}
+            >
+              <CanvasPreview item={component} />
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 function GridEditor({
   item,
   columnNameDrafts,
@@ -1397,10 +1793,14 @@ function App() {
   const [form] = Form.useForm();
   const [settingsForm] = Form.useForm();
   const [token, setToken] = useState<string>('');
-  const watchedScreenId = Form.useWatch('screenId', form) ?? DEFAULT_SCREEN_ID;
-  const watchedScreenName = Form.useWatch('name', form) ?? DEFAULT_SCREEN_NAME;
-  const watchedMenuId = Form.useWatch('menuId', form) ?? DEFAULT_MENU_ID;
-  const watchedMenuName = Form.useWatch('menuName', form) ?? DEFAULT_SCREEN_NAME;
+  const watchedScreenId =
+    Form.useWatch('screenId', { form, preserve: true }) ?? '';
+  const watchedScreenName =
+    Form.useWatch('name', { form, preserve: true }) ?? '';
+  const watchedMenuId =
+    Form.useWatch('menuId', { form, preserve: true }) ?? '';
+  const watchedMenuName =
+    Form.useWatch('menuName', { form, preserve: true }) ?? '';
   const [screens, setScreens] = useState<ScreenSummary[]>([]);
   const [menus, setMenus] = useState<MenuSummary[]>([]);
   const [components, setComponents] = useState<ScreenComponent[]>(DEFAULT_COMPONENTS);
@@ -1413,9 +1813,15 @@ function App() {
   const [jsonDraft, setJsonDraft] = useState(() =>
     JSON.stringify({ components: DEFAULT_COMPONENTS, communications: DEFAULT_COMMUNICATIONS.map(stripScreenCommunication) }, null, 2),
   );
+  const [sourceInputType, setSourceInputType] = useState<SourceInputType>('js');
+  const [sourceInputText, setSourceInputText] = useState('');
+  const [sourceScreenDraft, setSourceScreenDraft] = useState<SourceScreenDraft | null>(null);
+  const [sourceDraftModalOpen, setSourceDraftModalOpen] = useState(false);
+  const [aiDraftLoading, setAiDraftLoading] = useState(false);
   const [columnNameDrafts, setColumnNameDrafts] = useState<Record<string, string>>({});
   const [settingsModal, setSettingsModal] = useState<SettingsModalState>(null);
-  const [editingMenuId, setEditingMenuId] = useState(DEFAULT_MENU_ID);
+  const [screenPickerOpen, setScreenPickerOpen] = useState(false);
+  const [editingMenuId, setEditingMenuId] = useState('');
   const [formatsModalOpen, setFormatsModalOpen] = useState(false);
   const [metadataRevision, setMetadataRevision] = useState(0);
   const [expandedMenuKeys, setExpandedMenuKeys] = useState<React.Key[]>([]);
@@ -1443,6 +1849,13 @@ function App() {
   } | null>(null);
 
   const menuTreeData = useMemo(() => buildMenuTree(menus), [menus]);
+  const visibleScreens = useMemo(() => {
+    const selectedScreen = screens.find((screen) => screen.screenId === watchedScreenId);
+    if (selectedScreen) {
+      return [selectedScreen];
+    }
+    return screens.slice(-1);
+  }, [screens, watchedScreenId]);
   const selectedFormat =
     communicationFormats.find((format) => format.id === selectedFormatId) ??
     communicationFormats[0];
@@ -1452,6 +1865,15 @@ function App() {
   );
   const editingComponent = components.find((component) => component.id === editingComponentId);
   const selectedAction = communications.find((comm) => comm.id === selectedActionId);
+  const hasSelectedScreen = Boolean(watchedScreenId);
+  const hasSelectedMenu = Boolean(watchedMenuId);
+  const sourceDraftCanvasHeight = Math.max(
+    620,
+    ...(sourceScreenDraft?.components ?? []).map((component) => {
+      const layout = effectiveLayout(component);
+      return layout.y + layout.h + 32;
+    }),
+  );
   const actionBindingLines = useMemo(() => {
     if (!selectedAction) return [];
     const byId = new Map(components.map((component) => [component.id, component]));
@@ -1492,12 +1914,12 @@ function App() {
   const hasUnsavedChanges = savedSnapshot !== '' && savedSnapshot !== currentSnapshot;
 
   const currentFormValues = (): DesignerFormValues => ({
-    screenId: form.getFieldValue('screenId'),
-    name: form.getFieldValue('name'),
+    screenId: form.getFieldValue('screenId') ?? '',
+    name: form.getFieldValue('name') ?? '',
     allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
     isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
-    menuId: form.getFieldValue('menuId'),
-    menuName: form.getFieldValue('menuName'),
+    menuId: form.getFieldValue('menuId') ?? '',
+    menuName: form.getFieldValue('menuName') ?? '',
     menuParentId: form.getFieldValue('menuParentId') ?? '',
     menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
     menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
@@ -1527,26 +1949,27 @@ function App() {
       allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
       isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
     });
-    setSettingsModal({ type: 'screen' });
+    setSettingsModal({ type: 'screen', mode: 'edit' });
   };
 
   const syncJsonDraftFromComponents = useCallback(() => {
     setJsonDraft(JSON.stringify({ components, communications: communications.map(stripScreenCommunication) }, null, 2));
   }, [components, communications]);
 
-  const captureSavedSnapshot = useCallback(() => {
+  const captureSavedSnapshot = useCallback((formValues?: Partial<DesignerFormValues>) => {
+    const values = { ...currentFormValues(), ...formValues };
     setSavedSnapshot(
       JSON.stringify({
         form: {
-          screenId: form.getFieldValue('screenId'),
-          name: form.getFieldValue('name'),
-          allowRuntimePersonalization: Boolean(form.getFieldValue('allowRuntimePersonalization')),
-          isInitialScreen: Boolean(form.getFieldValue('isInitialScreen')),
-          menuId: form.getFieldValue('menuId'),
-          menuName: form.getFieldValue('menuName'),
-          menuParentId: form.getFieldValue('menuParentId') ?? '',
-          menuTargetType: form.getFieldValue('menuTargetType') ?? 'screen',
-          menuOpenMode: form.getFieldValue('menuOpenMode') ?? 'inline',
+          screenId: values.screenId,
+          name: values.name,
+          allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+          isInitialScreen: Boolean(values.isInitialScreen),
+          menuId: values.menuId,
+          menuName: values.menuName,
+          menuParentId: values.menuParentId ?? '',
+          menuTargetType: values.menuTargetType ?? 'screen',
+          menuOpenMode: values.menuOpenMode ?? 'inline',
         },
         components,
         communications: communications.map(stripScreenCommunication),
@@ -1612,7 +2035,7 @@ function App() {
       );
       const name = res.data.name || screenId;
       const linkedMenu = menuOverride ?? menus.find((menu) => menu.screenId === screenId);
-      form.setFieldsValue({
+      applyFormValues({
         screenId,
         name,
         allowRuntimePersonalization: Boolean(res.data.allowRuntimePersonalization),
@@ -1663,7 +2086,7 @@ function App() {
   };
 
   const loadMenu = async (menu: MenuSummary) => {
-    form.setFieldsValue({
+    applyFormValues({
       menuId: menu.id,
       menuName: menu.name,
       menuParentId: menu.parentId ?? '',
@@ -1683,9 +2106,32 @@ function App() {
   };
 
   const resetDesignerToBlank = (nextScreens: ScreenSummary[] = screens) => {
+    if (nextScreens.length === 0) {
+      applyFormValues({
+        screenId: '',
+        name: '',
+        allowRuntimePersonalization: false,
+        isInitialScreen: false,
+        menuId: '',
+        menuName: '',
+        menuParentId: '',
+        menuTargetType: 'screen',
+        menuOpenMode: 'inline',
+      });
+      setEditingMenuId('');
+      setComponents([]);
+      setCommunications([]);
+      setSelectedComponentId(null);
+      setSelectedComponentIds([]);
+      setColumnNameDrafts({});
+      setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+      setJsonTab('visual');
+      setSavedSnapshot('');
+      return;
+    }
     const screenId = nextScreenId(nextScreens);
     const name = `Screen ${screenId.replace('screen-', '')}`;
-    form.setFieldsValue({
+    applyFormValues({
       screenId,
       name,
       allowRuntimePersonalization: false,
@@ -1715,7 +2161,7 @@ function App() {
     try {
       await axios.delete(`http://localhost:8080/api/menus/${encodeURIComponent(menuId)}`);
       if (editingMenuId === menuId) {
-        form.setFieldsValue({
+        applyFormValues({
           menuId: `menu-${form.getFieldValue('screenId')}`,
           menuName: form.getFieldValue('name'),
           menuParentId: '',
@@ -2447,6 +2893,97 @@ function App() {
     ]);
   };
 
+  const buildSourceScreenDraft = () => {
+    if (!sourceInputText.trim()) {
+      message.warning('소스를 먼저 붙여넣어 주세요.');
+      return;
+    }
+    setSourceScreenDraft(makeSourceScreenDraft(sourceInputType, sourceInputText));
+    message.success('화면 초안이 생성되었습니다.');
+  };
+
+  const buildAiSourceScreenDraft = async () => {
+    if (!sourceInputText.trim()) {
+      message.warning('소스를 먼저 붙여넣어 주세요.');
+      return;
+    }
+    setAiDraftLoading(true);
+    try {
+      // TODO: Replace this mock with a backend AI endpoint call.
+      const draft = makeSourceScreenDraft(sourceInputType, sourceInputText);
+      setSourceScreenDraft({
+        ...draft,
+        summaryMessage: `AI ${draft.summaryMessage}`,
+        summaryDescription: `${draft.summaryDescription} AI endpoint hook is ready.`,
+      });
+      message.success('AI 화면 초안이 생성되었습니다.');
+    } finally {
+      setAiDraftLoading(false);
+    }
+  };
+
+  const clearSourceScreenDraft = () => {
+    setSourceInputText('');
+    setSourceScreenDraft(null);
+  };
+
+  const createScreenFromSourceDraft = () => {
+    if (!sourceScreenDraft) {
+      message.warning('Generate a screen draft first.');
+      return;
+    }
+
+    const screenId = nextScreenId(screens);
+    const name = `${sourceTypeLabel(sourceScreenDraft.sourceType)} Generated Screen`;
+    const menuId = `menu-${screenId}`;
+    const nextComponents = sourceScreenDraft.components.map((component) => ({
+      ...component,
+      layout: component.layout ? { ...component.layout } : undefined,
+      props: component.props ? { ...component.props } : undefined,
+    }));
+    const nextValues: DesignerFormValues = {
+      screenId,
+      name,
+      allowRuntimePersonalization: false,
+      isInitialScreen: false,
+      menuId,
+      menuName: name,
+      menuParentId: '',
+      menuTargetType: 'screen',
+      menuOpenMode: 'inline',
+    };
+
+    applyFormValues(nextValues);
+    setScreens((prev) => [
+      ...prev.filter((screen) => screen.screenId !== screenId),
+      { screenId, name, allowRuntimePersonalization: false, isInitialScreen: false },
+    ]);
+    setMenus((prev) => [
+      ...prev.filter((menu) => menu.id !== menuId),
+      {
+        id: menuId,
+        name,
+        screenId,
+        parentId: '',
+        targetType: 'screen',
+        openMode: 'inline',
+      },
+    ]);
+    setComponents(nextComponents);
+    setCommunications([]);
+    setSelectedComponentId(null);
+    setSelectedComponentIds([]);
+    setEditingComponentId(null);
+    setColumnNameDrafts({});
+    setPreviewInputValues({});
+    setPreviewGridRows({});
+    setJsonDraft(JSON.stringify({ components: nextComponents, communications: [] }, null, 2));
+    setEditingMenuId(menuId);
+    setSavedSnapshot('');
+    setJsonTab('visual');
+    message.success('Created a screen draft in Screen layout. Use Save to persist it.');
+  };
+
   const addCommunicationFormat = () => {
     const nextIndex = communicationFormats.length + 1;
     const id = `format${nextIndex}`;
@@ -3143,8 +3680,6 @@ function App() {
         openMode: menuOpenMode ?? 'inline',
       });
       setEditingMenuId(menuId);
-      await loadDesignerMetadata();
-      captureSavedSnapshot();
       message.success('Saved menu');
       return true;
     } catch (err) {
@@ -3157,6 +3692,10 @@ function App() {
   };
 
   const save = async () => {
+    if (!hasSelectedScreen) {
+      message.info('메뉴나 화면을 먼저 선택하거나 새로 생성하세요.');
+      return;
+    }
     try {
       await saveCurrentScreen();
       await loadDesignerMetadata();
@@ -3184,86 +3723,16 @@ function App() {
     }
   };
 
-  const newScreen = async () => {
-    try {
-      const savedScreen = await saveCurrentScreen();
-      const screenId = nextScreenId([
-        ...screens,
-        { screenId: savedScreen.screenId, name: savedScreen.name },
-      ]);
-      const name = `Screen ${screenId.replace('screen-', '')}`;
-      await axios.post('http://localhost:8080/api/screens', {
-        screenId,
-        name,
-        allowRuntimePersonalization: false,
-        isInitialScreen: false,
-        json: JSON.stringify({ components: [], communications: [] }),
-      });
-      await axios.post('http://localhost:8080/api/menus', {
-        id: `menu-${screenId}`,
-        previousId: '',
-        name,
-        screenId,
-        parentId: '',
-        targetType: 'screen',
-        openMode: 'inline',
-      });
-      setScreens((prev) => {
-        const withoutCurrent = prev.filter((screen) => screen.screenId !== savedScreen.screenId);
-        return [
-          ...withoutCurrent,
-          savedScreen,
-          {
-            screenId,
-            name,
-          },
-        ];
-      });
-      form.setFieldsValue({
-        screenId,
-        name,
-        allowRuntimePersonalization: false,
-        isInitialScreen: false,
-        menuId: `menu-${screenId}`,
-        menuName: name,
-        menuParentId: '',
-        menuTargetType: 'screen',
-        menuOpenMode: 'inline',
-      });
-      setComponents([]);
-      setCommunications([]);
-      setSelectedComponentId(null);
-      setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
-      setColumnNameDrafts({});
-      setJsonTab('visual');
-      setEditingMenuId(`menu-${screenId}`);
-      setSettingsModal({ type: 'menu', mode: 'edit' });
-      await loadDesignerMetadata();
-      setSavedSnapshot(
-        JSON.stringify({
-          form: {
-            screenId,
-            name,
-            allowRuntimePersonalization: false,
-            isInitialScreen: false,
-            menuId: `menu-${screenId}`,
-            menuName: name,
-            menuParentId: '',
-            menuTargetType: 'screen',
-            menuOpenMode: 'inline',
-          },
-          components: [],
-          communications: [],
-          communicationFormats,
-        }),
-      );
-      message.success('Added new screen');
-    } catch (err) {
-      console.error(err);
-      if (axios.isAxiosError(err)) {
-        message.error('New screen failed (is the backend running on port 8080?)');
-      }
-    }
+  const newScreen = () => {
+    const screenId = nextScreenId(screens);
+    const name = `Screen ${screenId.replace('screen-', '')}`;
+    settingsForm.setFieldsValue({
+      screenId,
+      name,
+      allowRuntimePersonalization: false,
+      isInitialScreen: false,
+    });
+    setSettingsModal({ type: 'screen', mode: 'new' });
   };
 
   const saveMenuSettings = async () => {
@@ -3282,6 +3751,23 @@ function App() {
 
     applyFormValues(values);
     setEditingMenuId(values.menuId);
+    setMenus((prev) => {
+      const nextMenu: MenuSummary = {
+        id: values.menuId,
+        name: values.menuName,
+        screenId: values.menuTargetType === 'screen' ? values.screenId : '',
+        parentId: values.menuParentId ?? '',
+        targetType: values.menuTargetType ?? 'screen',
+        openMode: values.menuOpenMode ?? 'inline',
+      };
+      return [
+        ...prev.filter((menu) => menu.id !== previousMenuId && menu.id !== values.menuId),
+        nextMenu,
+      ];
+    });
+    setExpandedMenuKeys((prev) =>
+      prev.includes(values.menuId) ? prev : [...prev, values.menuId],
+    );
     if (settingsModal.mode === 'new-screen') {
       setComponents([]);
       setCommunications([]);
@@ -3292,24 +3778,122 @@ function App() {
       setJsonTab('visual');
       setSavedSnapshot('');
     } else {
-      captureSavedSnapshot();
+      captureSavedSnapshot(values);
     }
+    await loadDesignerMetadata();
     setSettingsModal(null);
   };
 
   const saveScreenSettings = async () => {
     if (!settingsModal || settingsModal.type !== 'screen') return;
     try {
+      const previousScreenId = form.getFieldValue('screenId');
       const values = await settingsForm.validateFields([
         'screenId',
         'name',
         'allowRuntimePersonalization',
         'isInitialScreen',
       ]);
-      await saveCurrentScreen(values);
+      if (settingsModal.mode === 'new') {
+        const nextMenuId = `menu-${values.screenId}`;
+        await axios.post('http://localhost:8080/api/screens', {
+          screenId: values.screenId,
+          name: values.name,
+          allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+          isInitialScreen: Boolean(values.isInitialScreen),
+          json: JSON.stringify({ components: [], communications: [] }),
+        });
+        await axios.post('http://localhost:8080/api/menus', {
+          id: nextMenuId,
+          previousId: '',
+          name: values.name,
+          screenId: values.screenId,
+          parentId: '',
+          targetType: 'screen',
+          openMode: 'inline',
+        });
+        const nextValues: DesignerFormValues = {
+          screenId: values.screenId,
+          name: values.name,
+          allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+          isInitialScreen: Boolean(values.isInitialScreen),
+          menuId: nextMenuId,
+          menuName: values.name,
+          menuParentId: '',
+          menuTargetType: 'screen',
+          menuOpenMode: 'inline',
+        };
+        applyFormValues(nextValues);
+        setScreens((prev) => [
+          ...prev.filter((screen) => screen.screenId !== values.screenId),
+          {
+            screenId: values.screenId,
+            name: values.name,
+            allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+            isInitialScreen: Boolean(values.isInitialScreen),
+          },
+        ]);
+        setMenus((prev) => [
+          ...prev.filter((menu) => menu.id !== nextMenuId),
+          {
+            id: nextMenuId,
+            name: values.name,
+            screenId: values.screenId,
+            parentId: '',
+            targetType: 'screen',
+            openMode: 'inline',
+          },
+        ]);
+        setComponents([]);
+        setCommunications([]);
+        setSelectedComponentId(null);
+        setSelectedComponentIds([]);
+        setColumnNameDrafts({});
+        setJsonDraft(JSON.stringify({ components: [], communications: [] }, null, 2));
+        setJsonTab('visual');
+        setEditingMenuId(nextMenuId);
+        await loadDesignerMetadata();
+        setSavedSnapshot(
+          JSON.stringify({
+            form: nextValues,
+            components: [],
+            communications: [],
+            communicationFormats,
+          }),
+        );
+        setSettingsModal(null);
+        message.success('Added new screen');
+        return;
+      }
+      const nextValues = { ...currentFormValues(), ...values };
+      await saveCurrentScreen(nextValues);
+      if (previousScreenId && previousScreenId !== values.screenId) {
+        await axios.delete(`http://localhost:8080/api/screens/${encodeURIComponent(previousScreenId)}`);
+      }
       applyFormValues(values);
+      setScreens((prev) => [
+        ...prev.filter(
+          (screen) => screen.screenId !== previousScreenId && screen.screenId !== values.screenId,
+        ),
+        {
+          screenId: values.screenId,
+          name: values.name,
+          allowRuntimePersonalization: Boolean(values.allowRuntimePersonalization),
+          isInitialScreen: Boolean(values.isInitialScreen),
+        },
+      ]);
+      setMenus((prev) =>
+        prev.map((menu) =>
+          menu.id === nextValues.menuId
+            ? {
+                ...menu,
+                screenId: nextValues.menuTargetType === 'screen' ? values.screenId : '',
+              }
+            : menu,
+        ),
+      );
       await loadDesignerMetadata();
-      captureSavedSnapshot();
+      captureSavedSnapshot(nextValues);
       setSettingsModal(null);
       message.success('Saved screen settings');
     } catch (err) {
@@ -3399,17 +3983,21 @@ function App() {
               Web Screen Builder
             </Typography.Title>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {watchedScreenName} ({watchedScreenId})
+              {hasSelectedScreen
+                ? `${watchedScreenName || watchedScreenId} (${watchedScreenId})`
+                : 'No screen selected'}
             </Typography.Text>
           </div>
         </Space>
         <Space size={8}>
-          {hasUnsavedChanges ? (
+          {!hasSelectedScreen ? (
+            <Typography.Text type="secondary">No screen selected</Typography.Text>
+          ) : hasUnsavedChanges ? (
             <Typography.Text type="warning">Unsaved changes</Typography.Text>
           ) : (
             <Typography.Text type="secondary">Saved</Typography.Text>
           )}
-          <Button type="primary" onClick={save}>
+          <Button type="primary" disabled={!hasSelectedScreen} onClick={save}>
             Save
           </Button>
         </Space>
@@ -3430,14 +4018,22 @@ function App() {
             <Typography.Title level={5} style={{ margin: 0 }}>
               Screens
             </Typography.Title>
-            <Button size="small" type="primary" onClick={newScreen}>
-              New
-            </Button>
+            <Space size={6}>
+              <Button size="small" type="primary" onClick={newScreen}>
+                New
+              </Button>
+              <Button size="small" onClick={() => setScreenPickerOpen(true)}>
+                List
+              </Button>
+              <Button size="small" disabled={!hasSelectedScreen} onClick={openScreenSettings}>
+                Screen settings
+              </Button>
+            </Space>
           </Space>
           <List
             size="small"
             bordered
-            dataSource={screens}
+            dataSource={visibleScreens}
             locale={{ emptyText: 'No saved screens' }}
             renderItem={(screen) => (
               <List.Item
@@ -3477,16 +4073,93 @@ function App() {
             )}
             style={{ marginBottom: 20, background: '#fff', borderRadius: 8, overflow: 'hidden' }}
           />
-          <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 10 }}>
-            Menus
-          </Typography.Title>
-          <Space size={6} style={{ width: '100%', marginBottom: 8 }}>
-            <Button size="small" onClick={() => startMenuScreen()}>
-              New screen menu
-            </Button>
-            <Button size="small" onClick={() => startMenuFolder()}>
-              New folder
-            </Button>
+          <Modal
+            open={screenPickerOpen}
+            title="Screens"
+            width={640}
+            onCancel={() => setScreenPickerOpen(false)}
+            footer={<Button onClick={() => setScreenPickerOpen(false)}>Close</Button>}
+          >
+            <List
+              size="small"
+              bordered
+              dataSource={screens}
+              locale={{ emptyText: 'No saved screens' }}
+              renderItem={(screen) => (
+                <List.Item
+                  onClick={() => {
+                    setScreenPickerOpen(false);
+                    loadScreen(screen.screenId);
+                  }}
+                  actions={[
+                    <Button
+                      key="delete"
+                      size="small"
+                      danger
+                      type="text"
+                      icon={<DeleteOutlined />}
+                      aria-label="Delete screen"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmDeleteScreen(screen.screenId);
+                      }}
+                    />,
+                  ]}
+                  style={{ cursor: 'pointer', paddingInline: 8 }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <Space size={6}>
+                      <Typography.Text strong>{screen.name || screen.screenId}</Typography.Text>
+                      {screen.screenId === watchedScreenId && (
+                        <Typography.Text type="success" style={{ fontSize: 12 }}>
+                          Current
+                        </Typography.Text>
+                      )}
+                      {screen.isInitialScreen && (
+                        <Typography.Text type="success" style={{ fontSize: 12 }}>
+                          Initial
+                        </Typography.Text>
+                      )}
+                    </Space>
+                    <div>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {screen.screenId}
+                      </Typography.Text>
+                    </div>
+                  </div>
+                </List.Item>
+              )}
+            />
+          </Modal>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 10 }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Menus
+            </Typography.Title>
+            <Space size={6}>
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    { key: 'screen', label: 'Screen menu' },
+                    { key: 'folder', label: 'Folder' },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === 'folder') {
+                      startMenuFolder();
+                    } else {
+                      startMenuScreen();
+                    }
+                  },
+                }}
+              >
+                <Button size="small" type="primary">
+                  New
+                </Button>
+              </Dropdown>
+              <Button size="small" disabled={!hasSelectedMenu} onClick={openMenuSettings}>
+                Menu settings
+              </Button>
+            </Space>
           </Space>
           <div
             style={{
@@ -3503,9 +4176,10 @@ function App() {
               blockNode
               showLine
               expandedKeys={expandedMenuKeys}
+              selectedKeys={editingMenuId ? [editingMenuId] : []}
               onExpand={(keys) => setExpandedMenuKeys(keys)}
-              onSelect={(keys) => {
-                const menu = menus.find((item) => item.id === String(keys[0] ?? ''));
+              onSelect={(_, info) => {
+                const menu = menus.find((item) => item.id === String(info.node.key ?? ''));
                 if (menu) {
                   loadMenu(menu);
                 }
@@ -3579,6 +4253,8 @@ function App() {
             height: 'calc(100vh - 56px)',
             overflow: 'auto',
             boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           <Form
@@ -3586,17 +4262,17 @@ function App() {
             layout="vertical"
             onValuesChange={() => setFormRevision((prev) => prev + 1)}
             initialValues={{
-              screenId: DEFAULT_SCREEN_ID,
-              name: DEFAULT_SCREEN_NAME,
+              screenId: '',
+              name: '',
               allowRuntimePersonalization: false,
               isInitialScreen: false,
-              menuId: DEFAULT_MENU_ID,
-              menuName: DEFAULT_SCREEN_NAME,
+              menuId: '',
+              menuName: '',
               menuParentId: '',
               menuTargetType: 'screen',
               menuOpenMode: 'inline',
             }}
-            style={{ width: '100%', marginBottom: 16 }}
+            style={{ width: '100%', marginBottom: 12, flex: '0 0 auto' }}
           >
             <div
               style={{
@@ -3612,15 +4288,18 @@ function App() {
             >
               <Space size={16} wrap>
                 <Typography.Text>
-                  <strong>Menu</strong> {watchedMenuName} ({watchedMenuId})
+                  <strong>Menu</strong>{' '}
+                  {hasSelectedMenu ? `${watchedMenuName || watchedMenuId} (${watchedMenuId})` : ''}
                 </Typography.Text>
                 <Typography.Text>
-                  <strong>Screen</strong> {watchedScreenName} ({watchedScreenId})
+                  <strong>Screen</strong>{' '}
+                  {hasSelectedScreen ? `${watchedScreenName || watchedScreenId} (${watchedScreenId})` : ''}
                 </Typography.Text>
-              </Space>
-              <Space size={8}>
-                <Button onClick={openMenuSettings}>Menu settings</Button>
-                <Button onClick={openScreenSettings}>Screen settings</Button>
+                {(!hasSelectedMenu || !hasSelectedScreen) && (
+                  <Typography.Text type="secondary">
+                    메뉴나 화면을 먼저 선택하거나 새로 생성하세요.
+                  </Typography.Text>
+                )}
               </Space>
             </div>
             <Modal
@@ -3680,14 +4359,16 @@ function App() {
             </Modal>
             <Modal
               open={settingsModal?.type === 'screen'}
-              title="Screen settings"
+              title={settingsModal?.type === 'screen' && settingsModal.mode === 'new' ? 'New screen' : 'Screen settings'}
               width={760}
               onCancel={() => setSettingsModal(null)}
               footer={
                 <Space>
-                  <Button danger onClick={() => confirmDeleteScreen(settingsForm.getFieldValue('screenId'))}>
-                    Delete screen
-                  </Button>
+                  {settingsModal?.type === 'screen' && settingsModal.mode === 'edit' && (
+                    <Button danger onClick={() => confirmDeleteScreen(settingsForm.getFieldValue('screenId'))}>
+                      Delete screen
+                    </Button>
+                  )}
                   <Button onClick={() => setSettingsModal(null)}>Cancel</Button>
                   <Button type="primary" onClick={saveScreenSettings}>
                     Save screen
@@ -3730,6 +4411,12 @@ function App() {
               setJsonTab(k);
               if (k === 'json') syncJsonDraftFromComponents();
             }}
+            style={{
+              height: 'calc(100% - 84px)',
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
             items={[
               {
                 key: 'visual',
@@ -3739,16 +4426,20 @@ function App() {
                     onDragOver={acceptDragOver}
                     onDrop={dropNewFromToolbox}
                     style={{
-                      minHeight: 420,
+                      height: 'calc(100vh - 208px)',
+                      minHeight: 360,
                       background: '#ffffff',
                       border: '1px solid #d9dee7',
                       borderRadius: 10,
                       padding: '16px 16px 24px',
                       transition: 'border-color 0.2s',
                       boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                      boxSizing: 'border-box',
+                      display: 'flex',
+                      flexDirection: 'column',
                     }}
                   >
-                    <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 14, flex: '0 0 auto' }}>
                       <Typography.Title level={5} style={{ margin: 0 }}>
                         Screen Layout
                       </Typography.Title>
@@ -3762,7 +4453,8 @@ function App() {
                       onDrop={dropNewFromToolbox}
                       style={{
                         position: 'relative',
-                        minHeight: 460,
+                        flex: 1,
+                        minHeight: 0,
                         width: '100%',
                         marginTop: 8,
                         border: '1px solid #e5e7eb',
@@ -3771,6 +4463,7 @@ function App() {
                         backgroundSize: `${GRID}px ${GRID}px`,
                         backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
                         overflow: 'visible',
+                        boxSizing: 'border-box',
                       }}
                     >
                       {components.length === 0 ? (
@@ -3971,6 +4664,208 @@ function App() {
                       </Button>
                     </Space>
                   </Space>
+                ),
+              },
+              {
+                key: 'source-import',
+                label: 'Source import',
+                children: (
+                  <div
+                    style={{
+                      height: 'calc(100vh - 208px)',
+                      minHeight: 360,
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(320px, 0.9fr) minmax(420px, 1.1fr)',
+                      gap: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #d9dee7',
+                        borderRadius: 8,
+                        padding: 16,
+                        minHeight: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'auto',
+                      }}
+                    >
+                      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <Typography.Title level={5} style={{ margin: 0 }}>
+                          Source Input
+                        </Typography.Title>
+                        <Select
+                          size="small"
+                          value={sourceInputType}
+                          onChange={(value) => setSourceInputType(value)}
+                          options={[
+                            { value: 'js', label: 'JS' },
+                            { value: 'hbs', label: 'HBS' },
+                            { value: 'react-js', label: 'React JS' },
+                          ]}
+                          style={{ width: 120 }}
+                        />
+                      </Space>
+                      <Input.TextArea
+                        value={sourceInputText}
+                        onChange={(e) => setSourceInputText(e.target.value)}
+                        placeholder="기존 js, hbs, react js 소스를 여기에 붙여넣으세요."
+                        style={{
+                          flex: 1,
+                          minHeight: 0,
+                          resize: 'none',
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        }}
+                      />
+                      <Space style={{ marginTop: 12, justifyContent: 'space-between', width: '100%' }}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {sourceInputText.length} chars
+                        </Typography.Text>
+                        <Space size={8}>
+                          <Button onClick={clearSourceScreenDraft}>Clear</Button>
+                          <Button type="primary" onClick={buildSourceScreenDraft}>
+                            Generate draft
+                          </Button>
+                          <Button loading={aiDraftLoading} onClick={buildAiSourceScreenDraft}>
+                            AI Generate draft
+                          </Button>
+                        </Space>
+                      </Space>
+                    </div>
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #d9dee7',
+                        borderRadius: 8,
+                        padding: 16,
+                        minHeight: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'auto',
+                      }}
+                    >
+                      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <Typography.Title level={5} style={{ margin: 0 }}>
+                          Generated Screen
+                        </Typography.Title>
+                        <Space size={8}>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {sourceScreenDraft
+                              ? `${sourceTypeLabel(sourceScreenDraft.sourceType)} / ${sourceScreenDraft.lineCount} lines`
+                              : 'No draft'}
+                          </Typography.Text>
+                          <Button
+                            size="small"
+                            disabled={!sourceScreenDraft}
+                            onClick={() => setSourceDraftModalOpen(true)}
+                          >
+                            Open large
+                          </Button>
+                          <Button
+                            size="small"
+                            type="primary"
+                            disabled={!sourceScreenDraft}
+                            onClick={createScreenFromSourceDraft}
+                          >
+                            Create screen
+                          </Button>
+                        </Space>
+                      </Space>
+                      {sourceScreenDraft && (
+                        <Alert
+                          type="info"
+                          showIcon
+                          message={sourceScreenDraft.summaryMessage}
+                          description={`${sourceScreenDraft.summaryTitle} - ${sourceScreenDraft.summaryDescription}`}
+                          style={{ marginBottom: 12, flex: '0 0 auto' }}
+                        />
+                      )}
+                      <div
+                        style={{
+                          position: 'relative',
+                          height: sourceDraftCanvasHeight,
+                          minHeight: sourceDraftCanvasHeight,
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 8,
+                          backgroundColor: '#fbfcfe',
+                          backgroundSize: `${GRID}px ${GRID}px`,
+                          backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.045) 1px, transparent 1px)`,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {!sourceScreenDraft ? (
+                          <Typography.Paragraph type="secondary" style={{ margin: 16 }}>
+                            소스를 붙여넣고 Generate draft를 누르면 화면 초안이 여기에 표시됩니다.
+                          </Typography.Paragraph>
+                        ) : (
+                          sourceScreenDraft.components.map((component) => {
+                            const layout = effectiveLayout(component);
+                            return (
+                              <div
+                                key={component.id}
+                                style={{
+                                  position: 'absolute',
+                                  left: layout.x,
+                                  top: layout.y,
+                                  width: layout.w,
+                                  height: layout.h,
+                                  zIndex: component.zIndex ?? 1,
+                                  boxSizing: 'border-box',
+                                  padding: 8,
+                                  border: '1px solid #cfd7e3',
+                                  borderRadius: 8,
+                                  background: '#fff',
+                                  boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+                                }}
+                              >
+                                <CanvasPreview item={component} />
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                    <Modal
+                      open={sourceDraftModalOpen}
+                      title="Generated Screen"
+                      width="calc(100vw - 96px)"
+                      style={{ top: 32 }}
+                      onCancel={() => setSourceDraftModalOpen(false)}
+                      footer={
+                        <Space>
+                          <Button onClick={() => setSourceDraftModalOpen(false)}>Close</Button>
+                          <Button
+                            type="primary"
+                            disabled={!sourceScreenDraft}
+                            onClick={() => {
+                              createScreenFromSourceDraft();
+                              setSourceDraftModalOpen(false);
+                            }}
+                          >
+                            Create screen
+                          </Button>
+                        </Space>
+                      }
+                    >
+                      <div style={{ height: 'calc(100vh - 180px)', overflow: 'auto' }}>
+                        {sourceScreenDraft && (
+                          <Alert
+                            type="info"
+                            showIcon
+                            message={sourceScreenDraft.summaryMessage}
+                            description={`${sourceScreenDraft.summaryTitle} - ${sourceScreenDraft.summaryDescription}`}
+                            style={{ marginBottom: 12 }}
+                          />
+                        )}
+                        <SourceDraftCanvas
+                          draft={sourceScreenDraft}
+                          height={Math.max(sourceDraftCanvasHeight, 720)}
+                        />
+                      </div>
+                    </Modal>
+                  </div>
                 ),
               },
               {

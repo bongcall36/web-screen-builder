@@ -72,6 +72,7 @@ Menus are saved independently and can be nested:
 - `openMode`: `inline` opens in the runtime content area, `popup` opens the screen in a modal.
 
 ## Designer Behavior
+- Designer source is split by responsibility: `main.tsx` mounts the app, `App.tsx` owns the designer workflow, `designerApi.ts` centralizes backend API calls, `designerTypes.ts` defines shared DTO-like types, `designerConstants.tsx` stores defaults/toolbox metadata, `designerUtils.ts` stores pure helper logic, and `GridEditor.tsx` contains the grid row/column editor UI.
 - `New screen menu`, `New folder`, `Menu settings`, and `Screen settings` open a modal editor first.
 - The main designer state is not changed while those modals are open.
 - `Cancel`, the modal close button, or clicking outside the modal leaves the current menu/screen unchanged.

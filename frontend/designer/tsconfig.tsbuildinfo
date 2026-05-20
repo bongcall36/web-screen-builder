@@ -1,1 +1,1 @@
-{"root":["./src/componentrenderers.tsx","./src/main.tsx","./src/screentypes.ts","./src/sourceimport.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/grideditor.tsx","./src/componentrenderers.tsx","./src/designerapi.ts","./src/designerconstants.tsx","./src/designertypes.ts","./src/designerutils.ts","./src/main.tsx","./src/screentypes.ts","./src/sourceimport.ts"],"version":"5.9.3"}
